@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="author" content="hel.lounderworld & claude" />
+    <meta name="author" content="@hel.lounderworld & claude" />
     <title>US Treasury Auction Dashboard</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <style>
@@ -474,15 +474,8 @@
       <div class="upload-badge">◈ Macro Intelligence</div>
       <h1 class="upload-title">US Treasury Auction<br />Dashboard</h1>
       <p class="upload-sub">
-        <a
-          href="https://www.treasurydirect.gov/auctions/auction-query/"
-          target="_blank"
-          style="color: #00d4f5"
-        >
-          TreasuryDirect</a
-        >에서 다운로드한 CSV 파일을 업로드하면<br />입찰 수요 · 외국인 참여 ·
-        Tail 스프레드를 즉시 분석합니다.
-        <br />
+        TreasuryDirect에서 다운로드한 CSV 파일을 업로드하면<br />입찰 수요 ·
+        외국인 참여 · Tail 스프레드를 즉시 분석합니다.<br />
         <details
           style="margin-bottom: 20px; margin-left: auto; margin-right: auto"
         >
@@ -654,6 +647,14 @@
                 <span style="color: var(--accent)">●</span> <b>BTC 하락</b> —
                 응찰 배율 감소. 투자자 수요 약화 또는 발행 규모 확대
               </div>
+              <div class="guide-item">
+                <span style="color: #c084fc">●</span> <b>FIMA ↑</b> — 외국
+                공공기관의 비경쟁 낙찰. 중앙은행의 직접 참여 신호
+              </div>
+              <div class="guide-item">
+                <span style="color: #fb7185">●</span> <b>SOMA ↑</b> — 연준의
+                공개시장조작 계정 낙찰. QE/QT 사이클 반영
+              </div>
               <div class="guide-item">@hel.lounderworld x Claude.ai</div>
             </div>
           </div>
@@ -724,6 +725,8 @@
         const iDirect = idx("Direct Bidder Accepted");
         const iPrimary = idx("Primary Dealer Accepted");
         const iTotal = idx("Total Accepted");
+        const iFIMA = idx("FIMA Noncompetitive Accepted");
+        const iSOMA = idx("SOMA Accepted");
 
         const rows = [];
 
@@ -761,6 +764,8 @@
           const indirect = parseMoney(get(iIndirect));
           const direct = parseMoney(get(iDirect));
           const primary = parseMoney(get(iPrimary));
+          const fima = parseMoney(get(iFIMA));
+          const soma = parseMoney(get(iSOMA));
 
           const highRate =
             parseRate(get(iHighInv)) ??
@@ -794,6 +799,8 @@
             indirect_pct: safeDiv(indirect, totalAccepted),
             direct_pct: safeDiv(direct, totalAccepted),
             primary_pct: safeDiv(primary, totalAccepted),
+            fima_pct: safeDiv(fima, totalAccepted),
+            soma_pct: safeDiv(soma, totalAccepted),
           });
         }
 
@@ -871,7 +878,7 @@
         bp.style.display = primaryAnomalies > 0 ? "inline-block" : "none";
 
         document.getElementById("chart3-desc").textContent =
-          "Primary Dealer · Direct Bidder · Indirect Bidder — 누적 영역 차트" +
+          "Primary Dealer · Direct Bidder · Indirect Bidder · FIMA · SOMA — 누적 영역 차트" +
           (primaryAnomalies > 0
             ? `  ⚠ Primary Dealer 이상 급증 ${primaryAnomalies}건`
             : "");
@@ -969,6 +976,8 @@
         );
         const primaryArr = data.map((d) => d.primary_pct);
         const directArr = data.map((d) => d.direct_pct);
+        const fimaArr = data.map((d) => d.fima_pct);
+        const somaArr = data.map((d) => d.soma_pct);
 
         const spreadColors = data.map((d) =>
           d.spreadAnomaly ? C.red : C.accent,
@@ -1162,6 +1171,28 @@
                 d.primaryAnomaly ? "#fff" : C.primary,
               ),
               pointBorderWidth: data.map((d) => (d.primaryAnomaly ? 2 : 0)),
+            },
+            {
+              label: "FIMA",
+              data: fimaArr,
+              borderColor: "#c084fc",
+              backgroundColor: "rgba(192,132,252,0.3)",
+              fill: true,
+              tension: 0.3,
+              borderWidth: 1.5,
+              pointRadius: 2,
+              pointBackgroundColor: "#c084fc",
+            },
+            {
+              label: "SOMA",
+              data: somaArr,
+              borderColor: "#fb7185",
+              backgroundColor: "rgba(251,113,133,0.25)",
+              fill: true,
+              tension: 0.3,
+              borderWidth: 1.5,
+              pointRadius: 2,
+              pointBackgroundColor: "#fb7185",
             },
           ],
           {
