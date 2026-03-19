@@ -689,6 +689,8 @@
         indirect: "#00d4f5",
         direct: "#1de9b6",
         primary: "#f5a623",
+        fima: "#c084fc",
+        soma: "#fb7185",
       };
 
       Chart.defaults.color = C.muted;
@@ -1175,24 +1177,24 @@
             {
               label: "FIMA",
               data: fimaArr,
-              borderColor: "#c084fc",
+              borderColor: C.fima,
               backgroundColor: "rgba(192,132,252,0.3)",
               fill: true,
               tension: 0.3,
               borderWidth: 1.5,
               pointRadius: 2,
-              pointBackgroundColor: "#c084fc",
+              pointBackgroundColor: C.fima,
             },
             {
               label: "SOMA",
               data: somaArr,
-              borderColor: "#fb7185",
+              borderColor: C.soma,
               backgroundColor: "rgba(251,113,133,0.25)",
               fill: true,
               tension: 0.3,
               borderWidth: 1.5,
               pointRadius: 2,
-              pointBackgroundColor: "#fb7185",
+              pointBackgroundColor: C.soma,
             },
           ],
           {
@@ -1273,7 +1275,9 @@
                   const unit =
                     label.includes("%") ||
                     label.includes("Bidder") ||
-                    label.includes("Dealer")
+                    label.includes("Dealer") ||
+                    label.includes("FIMA") ||
+                    label.includes("SOMA")
                       ? "%"
                       : label.includes("Spread")
                         ? "bp"
@@ -1471,6 +1475,8 @@
           Object.values(charts).forEach((c) => c.destroy());
         });
       });
+
+      console.log(fimaArr, primaryArr);
     </script>
   </body>
 </html>
