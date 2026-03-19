@@ -1,0 +1,1445 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="author" content="hel.lounderworld & claude" />
+    <title>US Treasury Auction Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;600;700;800&display=swap");
+
+      :root {
+        --bg: #080c18;
+        --panel: #0f1624;
+        --panel2: #141d2e;
+        --border: #1a2840;
+        --accent: #00d4f5;
+        --gold: #f5a623;
+        --green: #1de9b6;
+        --red: #ff3d6e;
+        --violet: #a78bfa;
+        --text: #dde4f0;
+        --muted: #546a8a;
+        --indirect: #00d4f5;
+        --direct: #1de9b6;
+        --primary-c: #f5a623;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "IBM Plex Sans", sans-serif;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      /* ── UPLOAD SCREEN ─────────────────────────── */
+      #upload-screen {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 40px 20px;
+        background: radial-gradient(
+          ellipse 80% 60% at 50% 40%,
+          rgba(0, 212, 245, 0.07) 0%,
+          transparent 70%
+        );
+      }
+
+      .upload-badge {
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 16px;
+      }
+
+      .upload-title {
+        font-size: clamp(24px, 5vw, 42px);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: #fff;
+        text-align: center;
+        margin-bottom: 10px;
+      }
+
+      .upload-sub {
+        color: var(--muted);
+        font-size: 14px;
+        text-align: center;
+        margin-bottom: 48px;
+        max-width: 480px;
+        line-height: 1.6;
+      }
+
+      .upload-zone {
+        width: 100%;
+        max-width: 480px;
+        border: 2px dashed var(--border);
+        border-radius: 18px;
+        padding: 48px 32px;
+        text-align: center;
+        cursor: pointer;
+        transition:
+          border-color 0.3s,
+          background 0.3s;
+        background: var(--panel);
+        position: relative;
+      }
+
+      .upload-zone:hover,
+      .upload-zone.drag-over {
+        border-color: var(--accent);
+        background: rgba(0, 212, 245, 0.05);
+      }
+
+      .upload-zone input[type="file"] {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+        width: 100%;
+        height: 100%;
+      }
+
+      .upload-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        display: block;
+      }
+
+      .upload-zone h3 {
+        color: var(--text);
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+      .upload-zone p {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .upload-hint {
+        margin-top: 24px;
+        font-size: 12px;
+        color: var(--muted);
+        text-align: center;
+        line-height: 1.8;
+      }
+
+      .upload-hint strong {
+        color: var(--accent);
+      }
+
+      .upload-error {
+        margin-top: 16px;
+        color: var(--red);
+        font-size: 13px;
+        text-align: center;
+        display: none;
+      }
+
+      /* ── DASHBOARD ─────────────────────────────── */
+      #dashboard {
+        display: none;
+        padding: 24px;
+        max-width: 1600px;
+        margin: 0 auto;
+      }
+
+      .dash-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+
+      .dash-meta {
+        font-size: 11px;
+        color: var(--accent);
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+      .dash-title {
+        font-size: clamp(18px, 3vw, 28px);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: #fff;
+      }
+      .dash-subtitle {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 4px;
+      }
+
+      .anomaly-badges {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .badge {
+        border-radius: 20px;
+        padding: 5px 13px;
+        font-size: 12px;
+        font-weight: 600;
+        display: none;
+      }
+
+      .badge-red {
+        background: rgba(255, 61, 110, 0.15);
+        border: 1px solid var(--red);
+        color: var(--red);
+      }
+      .badge-gold {
+        background: rgba(245, 166, 35, 0.15);
+        border: 1px solid var(--gold);
+        color: var(--gold);
+      }
+
+      .reload-btn {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        border-radius: 8px;
+        padding: 6px 14px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: inherit;
+      }
+      .reload-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      /* ── TERM FILTER ───────────────────────────── */
+      .term-filter {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 24px;
+      }
+
+      .term-btn {
+        padding: 5px 13px;
+        border-radius: 20px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 12px;
+        font-family: inherit;
+        transition: all 0.2s;
+      }
+
+      .term-btn.active {
+        border-color: var(--accent);
+        background: rgba(0, 212, 245, 0.1);
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .term-btn:hover:not(.active) {
+        border-color: var(--muted);
+        color: var(--text);
+      }
+
+      /* ── KPI CARDS ─────────────────────────────── */
+      .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+
+      @media (max-width: 900px) {
+        .kpi-grid {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+      @media (max-width: 600px) {
+        .kpi-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      .kpi-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px 18px;
+        transition: box-shadow 0.3s;
+      }
+
+      .kpi-card.warn {
+        border-color: var(--red);
+        box-shadow: 0 0 18px rgba(255, 61, 110, 0.2);
+      }
+
+      .kpi-label {
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+
+      .kpi-value {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: clamp(18px, 2.5vw, 26px);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin-bottom: 4px;
+      }
+
+      .kpi-sub {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      /* ── CHARTS GRID ───────────────────────────── */
+      .charts-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+
+      @media (max-width: 900px) {
+        .charts-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .chart-panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px 18px;
+      }
+
+      .chart-panel.wide {
+        grid-column: 1 / -1;
+      }
+
+      .chart-head {
+        margin-bottom: 16px;
+      }
+      .chart-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #fff;
+        margin-bottom: 3px;
+      }
+      .chart-desc {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .chart-wrap {
+        position: relative;
+        height: 240px;
+      }
+      .chart-wrap-tall {
+        position: relative;
+        height: 280px;
+      }
+
+      .anomaly-note {
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--red);
+        background: rgba(255, 61, 110, 0.07);
+        border-radius: 6px;
+        padding: 7px 11px;
+        display: none;
+      }
+
+      /* ── GUIDE ─────────────────────────────────── */
+      .guide {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px 22px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 28px;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+
+      .guide-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #fff;
+        margin-bottom: 10px;
+      }
+
+      .guide-items {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .guide-item {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .guide-item b {
+        color: var(--text);
+      }
+
+      .guide-source {
+        font-size: 11px;
+        color: var(--muted);
+        align-self: flex-end;
+      }
+
+      /* ── NO DATA ───────────────────────────────── */
+      .no-data {
+        text-align: center;
+        color: var(--muted);
+        padding: 60px 0;
+        font-size: 14px;
+      }
+
+      /* ── LOADING ───────────────────────────────── */
+      #loading {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 12, 24, 0.9);
+        z-index: 100;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 16px;
+        font-size: 14px;
+        color: var(--accent);
+      }
+
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ── SCROLLBAR ─────────────────────────────── */
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: var(--bg);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Loading overlay -->
+    <div id="loading">
+      <div class="spinner"></div>
+      <span>데이터 분석 중...</span>
+    </div>
+
+    <!-- ══ UPLOAD SCREEN ══════════════════════════════════════════ -->
+    <div id="upload-screen">
+      <div class="upload-badge">◈ Macro Intelligence</div>
+      <h1 class="upload-title">US Treasury Auction<br />Dashboard</h1>
+      <p class="upload-sub">
+        <a
+          href="https://www.treasurydirect.gov/auctions/auction-query/"
+          target="_blank"
+          style="color: #00d4f5"
+        >
+          TreasuryDirect</a
+        >에서 다운로드한 CSV 파일을 업로드하면<br />입찰 수요 · 외국인 참여 ·
+        Tail 스프레드를 즉시 분석합니다.
+        <br />
+        <details
+          style="margin-bottom: 20px; margin-left: auto; margin-right: auto"
+        >
+          <summary
+            style="
+              cursor: pointer;
+              font-weight: bold;
+              width: 100%;
+              color: #546a8a;
+              margin-left: auto;
+              margin-right: auto;
+            "
+          >
+            다운로드 법 (클릭해서 확인하세요)
+          </summary>
+          <div>
+            <img
+              src="./download.jpg"
+              style="margin-top: 20px; width: 400px; max-width: 100%"
+              alt="다운로드 방법 이미지"
+            />
+          </div>
+        </details>
+      </p>
+
+      <div class="upload-zone" id="upload-zone">
+        <input type="file" id="csv-input" accept=".csv" />
+        <span class="upload-icon">📂</span>
+        <h3>CSV 파일을 드래그하거나 클릭해서 업로드</h3>
+        <p>TreasuryDirect 입찰 결과 CSV 파일을 지원합니다</p>
+      </div>
+
+      <div class="upload-hint">
+        필수 컬럼:
+        <strong>Security Term · Auction Date · Bid-to-Cover Ratio</strong><br />
+        High Investment Rate · Allocation Percentage · Indirect/Direct/Primary
+        Bidder Accepted
+      </div>
+
+      <div class="upload-error" id="upload-error">
+        ⚠ 파일을 읽는 중 오류가 발생했습니다. CSV 형식을 확인해주세요.
+      </div>
+    </div>
+
+    <!-- ══ DASHBOARD ══════════════════════════════════════════════ -->
+    <div id="dashboard">
+      <div class="dash-header">
+        <div>
+          <div class="dash-meta">◈ Macro Intelligence</div>
+          <div class="dash-title">US Treasury Auction Dashboard</div>
+          <div class="dash-subtitle">
+            입찰 수요 · 외국인 참여 · 테일 스프레드 종합 분석
+          </div>
+        </div>
+        <div class="anomaly-badges">
+          <div class="badge badge-red" id="badge-spread"></div>
+          <div class="badge badge-gold" id="badge-primary"></div>
+          <button class="reload-btn" id="reload-btn">
+            ↩ 파일 다시 불러오기
+          </button>
+        </div>
+      </div>
+
+      <div class="term-filter" id="term-filter"></div>
+
+      <div class="kpi-grid" id="kpi-grid">
+        <div class="kpi-card" id="kpi-rate">
+          <div class="kpi-label">High Rate</div>
+          <div class="kpi-value" id="kv-rate" style="color: var(--accent)">
+            —
+          </div>
+          <div class="kpi-sub" id="ks-rate"></div>
+        </div>
+        <div class="kpi-card" id="kpi-btc">
+          <div class="kpi-label">Bid-to-Cover</div>
+          <div class="kpi-value" id="kv-btc">—</div>
+          <div class="kpi-sub" id="ks-btc"></div>
+        </div>
+        <div class="kpi-card" id="kpi-indirect">
+          <div class="kpi-label">Indirect 비중</div>
+          <div
+            class="kpi-value"
+            id="kv-indirect"
+            style="color: var(--indirect)"
+          >
+            —
+          </div>
+          <div class="kpi-sub">외국 중앙은행 대리 수요</div>
+        </div>
+        <div class="kpi-card" id="kpi-alloc">
+          <div class="kpi-label">Allocation %</div>
+          <div class="kpi-value" id="kv-alloc" style="color: var(--violet)">
+            —
+          </div>
+          <div class="kpi-sub">낙찰 비율</div>
+        </div>
+        <div class="kpi-card" id="kpi-spread">
+          <div class="kpi-label">Tail Spread</div>
+          <div class="kpi-value" id="kv-spread">—</div>
+          <div class="kpi-sub">High − Median Rate</div>
+        </div>
+      </div>
+
+      <div id="no-data" class="no-data" style="display: none">
+        선택한 만기에 표시할 데이터가 없습니다.
+      </div>
+
+      <div id="charts-container">
+        <div class="charts-grid">
+          <!-- Chart 1: BTC + Indirect -->
+          <div class="chart-panel">
+            <div class="chart-head">
+              <div class="chart-title">수요 트렌드</div>
+              <div class="chart-desc">
+                Bid-to-Cover Ratio &amp; Indirect Bidder 비중
+              </div>
+            </div>
+            <div class="chart-wrap"><canvas id="chart-demand"></canvas></div>
+          </div>
+
+          <!-- Chart 2: Alloc + Spread -->
+          <div class="chart-panel">
+            <div class="chart-head">
+              <div class="chart-title">낙찰 열기</div>
+              <div class="chart-desc">Allocation % &amp; Tail Spread (bp)</div>
+            </div>
+            <div class="chart-wrap"><canvas id="chart-heat"></canvas></div>
+            <div class="anomaly-note" id="note-spread">
+              ⚠ 빨간 점 = Tail 이상 확대 구간 (평균 +1.5σ 초과). 투자자 수요
+              약화 신호.
+            </div>
+          </div>
+
+          <!-- Chart 3: Stacked Area -->
+          <div class="chart-panel wide">
+            <div class="chart-head">
+              <div class="chart-title">주체별 낙찰 비중 추이</div>
+              <div class="chart-desc" id="chart3-desc">
+                Primary Dealer · Direct Bidder · Indirect Bidder — 누적 영역
+                차트
+              </div>
+            </div>
+            <div class="chart-wrap-tall">
+              <canvas id="chart-bidders"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Guide -->
+        <div class="guide">
+          <div>
+            <div class="guide-title">📖 해석 가이드</div>
+            <div class="guide-items">
+              <div class="guide-item">
+                <span style="color: var(--indirect)">●</span>
+                <b>Indirect ↑</b> — 외국 중앙은행·국부펀드 수요 강세, 달러
+                안전자산 선호
+              </div>
+              <div class="guide-item">
+                <span style="color: var(--primary-c)">●</span>
+                <b>Primary Dealer ↑</b> — 시장 내수가 약할 때 딜러가 재고 흡수.
+                유동성 경고 신호
+              </div>
+              <div class="guide-item">
+                <span style="color: var(--red)">●</span> <b>Tail Spread ↑</b> —
+                High vs Median 차이 확대. 수요 불균형, 가격 발견 압력
+              </div>
+              <div class="guide-item">
+                <span style="color: var(--accent)">●</span> <b>BTC 하락</b> —
+                응찰 배율 감소. 투자자 수요 약화 또는 발행 규모 확대
+              </div>
+              <div class="guide-item">@hel.lounderworld x Claude.ai</div>
+            </div>
+          </div>
+          <div class="guide-source" id="guide-source">
+            데이터: US Treasury / TreasuryDirect
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- /#dashboard -->
+
+    <script>
+      // ════════════════════════════════════════════════════════════════
+      // GLOBALS
+      // ════════════════════════════════════════════════════════════════
+      let RAW_DATA = [];
+      let allTerms = [];
+      let selectedTerm = "";
+      const charts = {};
+
+      const C = {
+        bg: "#080c18",
+        panel: "#0f1624",
+        border: "#1a2840",
+        accent: "#00d4f5",
+        gold: "#f5a623",
+        green: "#1de9b6",
+        red: "#ff3d6e",
+        violet: "#a78bfa",
+        muted: "#546a8a",
+        text: "#dde4f0",
+        indirect: "#00d4f5",
+        direct: "#1de9b6",
+        primary: "#f5a623",
+      };
+
+      Chart.defaults.color = C.muted;
+      Chart.defaults.borderColor = C.border;
+      Chart.defaults.font.family = "'IBM Plex Sans', sans-serif";
+
+      // ════════════════════════════════════════════════════════════════
+      // CSV PARSER
+      // ════════════════════════════════════════════════════════════════
+      function parseCSV(text) {
+        const lines = text.split(/\r?\n/).filter((l) => l.trim());
+        if (lines.length < 2) return [];
+
+        // Parse header — handle quoted fields
+        const headers = splitCSVLine(lines[0]);
+
+        const idx = (name) =>
+          headers.findIndex((h) => h.trim().replace(/^"|"$/g, "") === name);
+
+        // Column indices
+        const iCUSIP = idx("CUSIP");
+        const iTerm = idx("Security Term");
+        const iType = idx("Security Type");
+        const iDate = idx("Auction Date");
+        const iBTC = idx("Bid-to-Cover Ratio");
+        const iHighInv = idx("High Investment Rate");
+        const iHighDisc = idx("High Discount Rate");
+        const iHighYield = idx("High Yield");
+        const iMedInv = idx("Average / Median Investment Rate");
+        const iMedDisc = idx("Average / Median Discount Rate");
+        const iMedYield = idx("Average / Median Yield");
+        const iAllocPct = idx("Allocation Percentage");
+        const iIndirect = idx("Indirect Bidder Accepted");
+        const iDirect = idx("Direct Bidder Accepted");
+        const iPrimary = idx("Primary Dealer Accepted");
+        const iTotal = idx("Total Accepted");
+
+        const rows = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const cols = splitCSVLine(lines[i]);
+
+          const parseMoney = (v) => {
+            if (!v) return null;
+            const n = parseFloat(v.replace(/[$,]/g, ""));
+            return isNaN(n) ? null : n;
+          };
+          const parseRate = (v) => {
+            if (!v) return null;
+            const n = parseFloat(v.replace("%", ""));
+            return isNaN(n) ? null : n;
+          };
+          const parseFloat2 = (v) => {
+            if (!v) return null;
+            const n = parseFloat(v);
+            return isNaN(n) ? null : n;
+          };
+          const parsePct = (v) => {
+            if (!v) return null;
+            const n = parseFloat(v.replace("%", ""));
+            return isNaN(n) ? null : n;
+          };
+
+          const get = (i) =>
+            i >= 0 && i < cols.length
+              ? cols[i].replace(/^"|"$/g, "").trim()
+              : "";
+
+          const totalAccepted = parseMoney(get(iTotal));
+          const indirect = parseMoney(get(iIndirect));
+          const direct = parseMoney(get(iDirect));
+          const primary = parseMoney(get(iPrimary));
+
+          const highRate =
+            parseRate(get(iHighInv)) ??
+            parseRate(get(iHighDisc)) ??
+            parseRate(get(iHighYield));
+          const medRate =
+            parseRate(get(iMedInv)) ??
+            parseRate(get(iMedDisc)) ??
+            parseRate(get(iMedYield));
+          const spread =
+            highRate != null && medRate != null
+              ? +(highRate - medRate).toFixed(4)
+              : null;
+
+          const safeDiv = (a, b) =>
+            a != null && b != null && b !== 0
+              ? +((a / b) * 100).toFixed(2)
+              : null;
+
+          rows.push({
+            cusip: get(iCUSIP),
+            term: get(iTerm),
+            type: get(iType),
+            auction_date: get(iDate),
+            btc: parseFloat2(get(iBTC)),
+            high_rate: highRate,
+            median_rate: medRate,
+            spread,
+            alloc_pct: parsePct(get(iAllocPct)),
+            total_accepted: totalAccepted,
+            indirect_pct: safeDiv(indirect, totalAccepted),
+            direct_pct: safeDiv(direct, totalAccepted),
+            primary_pct: safeDiv(primary, totalAccepted),
+          });
+        }
+
+        return rows.filter((r) => r.term);
+      }
+
+      function splitCSVLine(line) {
+        const result = [];
+        let cur = "";
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+              cur += '"';
+              i++;
+            } else inQuotes = !inQuotes;
+          } else if (ch === "," && !inQuotes) {
+            result.push(cur);
+            cur = "";
+          } else {
+            cur += ch;
+          }
+        }
+        result.push(cur);
+        return result;
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // ANOMALY DETECTION
+      // ════════════════════════════════════════════════════════════════
+      function calcStats(arr) {
+        const vals = arr.filter((v) => v != null);
+        if (!vals.length) return { mean: 0, std: 0 };
+        const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+        const std = Math.sqrt(
+          vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length,
+        );
+        return { mean, std };
+      }
+
+      function detectAnomalies(items) {
+        const { mean: sm, std: ss } = calcStats(items.map((d) => d.spread));
+        const { mean: pm, std: ps } = calcStats(
+          items.map((d) => d.primary_pct),
+        );
+        return items.map((d) => ({
+          ...d,
+          spreadAnomaly: d.spread != null && d.spread > sm + 1.5 * ss,
+          primaryAnomaly:
+            d.primary_pct != null && d.primary_pct > pm + 1.5 * ps,
+        }));
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // RENDER DASHBOARD
+      // ════════════════════════════════════════════════════════════════
+      function renderDashboard() {
+        const raw = RAW_DATA.filter((d) => d.term === selectedTerm)
+          .filter((d) => d.btc != null)
+          .sort((a, b) => new Date(a.auction_date) - new Date(b.auction_date));
+
+        const data = detectAnomalies(raw);
+        const latest = data[data.length - 1];
+
+        const spreadAnomalies = data.filter((d) => d.spreadAnomaly).length;
+        const primaryAnomalies = data.filter((d) => d.primaryAnomaly).length;
+
+        // Anomaly badges
+        const bs = document.getElementById("badge-spread");
+        const bp = document.getElementById("badge-primary");
+        bs.textContent = `⚠ Tail 확대 ${spreadAnomalies}건`;
+        bp.textContent = `⚠ Primary Dealer 급증 ${primaryAnomalies}건`;
+        bs.style.display = spreadAnomalies > 0 ? "inline-block" : "none";
+        bp.style.display = primaryAnomalies > 0 ? "inline-block" : "none";
+
+        document.getElementById("chart3-desc").textContent =
+          "Primary Dealer · Direct Bidder · Indirect Bidder — 누적 영역 차트" +
+          (primaryAnomalies > 0
+            ? `  ⚠ Primary Dealer 이상 급증 ${primaryAnomalies}건`
+            : "");
+
+        const noData = document.getElementById("no-data");
+        const chartsContainer = document.getElementById("charts-container");
+
+        if (!data.length) {
+          noData.style.display = "block";
+          chartsContainer.style.display = "none";
+          clearKPIs();
+          return;
+        }
+
+        noData.style.display = "none";
+        chartsContainer.style.display = "block";
+
+        // ── KPIs ──
+        const btcMean = calcStats(data.map((d) => d.btc)).mean;
+
+        setKPI(
+          "kv-rate",
+          "ks-rate",
+          "kpi-rate",
+          latest.high_rate != null ? latest.high_rate.toFixed(3) + "%" : "N/A",
+          `Auction: ${latest.auction_date}`,
+          C.accent,
+          false,
+        );
+
+        const btcWarn = latest.btc != null && latest.btc < btcMean - 0.3;
+        setKPI(
+          "kv-btc",
+          "ks-btc",
+          "kpi-btc",
+          latest.btc?.toFixed(2) ?? "—",
+          `평균 ${btcMean.toFixed(2)} 대비`,
+          btcWarn ? C.red : C.green,
+          btcWarn,
+        );
+
+        setKPI(
+          "kv-indirect",
+          null,
+          "kpi-indirect",
+          latest.indirect_pct != null
+            ? latest.indirect_pct.toFixed(1) + "%"
+            : "N/A",
+          null,
+          C.indirect,
+          false,
+        );
+
+        setKPI(
+          "kv-alloc",
+          null,
+          "kpi-alloc",
+          latest.alloc_pct != null ? latest.alloc_pct.toFixed(2) + "%" : "N/A",
+          null,
+          C.violet,
+          false,
+        );
+
+        setKPI(
+          "kv-spread",
+          null,
+          "kpi-spread",
+          latest.spread != null
+            ? (latest.spread * 100).toFixed(1) + "bp"
+            : "N/A",
+          null,
+          latest.spreadAnomaly ? C.red : C.green,
+          latest.spreadAnomaly,
+        );
+
+        // ── Chart data ──
+        // 연도가 바뀌는 첫 지점에 "'YY " 접두어 추가
+        const labels = data.map((d, i) => {
+          const parts = d.auction_date.split("/"); // MM/DD/YYYY
+          const mm = parts[0],
+            dd = parts[1],
+            yyyy = parts[2] || "";
+          const yy = yyyy.slice(2);
+          const mmdd = `${mm}/${dd}`;
+          if (i === 0) return `'${yy} ${mmdd}`; // 첫 항목은 항상 연도 표시
+          const prevParts = data[i - 1].auction_date.split("/");
+          const prevYyyy = prevParts[2] || "";
+          return prevYyyy !== yyyy ? `'${yy} ${mmdd}` : mmdd; // 연도 바뀔 때만 표시
+        });
+        const btcArr = data.map((d) => d.btc);
+        const indirectArr = data.map((d) => d.indirect_pct);
+        const allocArr = data.map((d) => d.alloc_pct);
+        const spreadArr = data.map((d) =>
+          d.spread != null ? +(d.spread * 100).toFixed(3) : null,
+        );
+        const primaryArr = data.map((d) => d.primary_pct);
+        const directArr = data.map((d) => d.direct_pct);
+
+        const spreadColors = data.map((d) =>
+          d.spreadAnomaly ? C.red : C.accent,
+        );
+
+        // ── Chart 1: Demand (BTC bar + Indirect line, dual axis) ──
+        buildChart(
+          "chart-demand",
+          "bar",
+          labels,
+          [
+            {
+              label: "BTC Ratio",
+              data: btcArr,
+              type: "bar",
+              backgroundColor: "rgba(0,212,245,0.18)",
+              borderColor: C.accent,
+              borderWidth: 1,
+              borderRadius: 3,
+              yAxisID: "y",
+            },
+            {
+              label: "Indirect %",
+              data: indirectArr,
+              type: "line",
+              borderColor: C.green,
+              backgroundColor: "transparent",
+              borderWidth: 2,
+              pointRadius: 3,
+              pointBackgroundColor: C.green,
+              tension: 0.3,
+              yAxisID: "y2",
+            },
+          ],
+          {
+            scales: {
+              y: {
+                position: "left",
+                grid: { color: C.border },
+                ticks: { color: C.muted, font: { size: 10 } },
+                title: {
+                  display: true,
+                  text: "BTC",
+                  color: C.muted,
+                  font: { size: 10 },
+                },
+              },
+              y2: {
+                position: "right",
+                grid: { drawOnChartArea: false },
+                ticks: {
+                  color: C.muted,
+                  font: { size: 10 },
+                  callback: (v) => v + "%",
+                },
+                title: {
+                  display: true,
+                  text: "Indirect %",
+                  color: C.muted,
+                  font: { size: 10 },
+                },
+              },
+            },
+            plugins: {
+              annotation: {
+                annotations: {
+                  meanLine: {
+                    type: "line",
+                    yMin: btcMean,
+                    yMax: btcMean,
+                    borderColor: C.muted,
+                    borderWidth: 1,
+                    borderDash: [4, 4],
+                    label: {
+                      content: "평균",
+                      display: true,
+                      position: "end",
+                      color: C.muted,
+                      font: { size: 9 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        );
+
+        // ── Chart 2: Heat (Alloc area + Spread line, dual axis) ──
+        buildChart(
+          "chart-heat",
+          "line",
+          labels,
+          [
+            {
+              label: "Allocation %",
+              data: allocArr,
+              borderColor: C.violet,
+              backgroundColor: "rgba(167,139,250,0.12)",
+              borderWidth: 2,
+              fill: true,
+              tension: 0.3,
+              pointRadius: 3,
+              pointBackgroundColor: C.violet,
+              yAxisID: "y",
+            },
+            {
+              label: "Tail Spread (bp)",
+              data: spreadArr,
+              borderColor: C.red,
+              backgroundColor: "transparent",
+              borderWidth: 2,
+              fill: false,
+              tension: 0.3,
+              pointRadius: data.map((d) => (d.spreadAnomaly ? 7 : 3)),
+              pointBackgroundColor: spreadColors,
+              pointBorderColor: data.map((d) =>
+                d.spreadAnomaly ? "#fff" : C.red,
+              ),
+              pointBorderWidth: data.map((d) => (d.spreadAnomaly ? 2 : 0)),
+              yAxisID: "y2",
+            },
+          ],
+          {
+            scales: {
+              y: {
+                position: "left",
+                grid: { color: C.border },
+                ticks: {
+                  color: C.muted,
+                  font: { size: 10 },
+                  callback: (v) => v + "%",
+                },
+              },
+              y2: {
+                position: "right",
+                grid: { drawOnChartArea: false },
+                ticks: {
+                  color: C.muted,
+                  font: { size: 10 },
+                  callback: (v) => v + "bp",
+                },
+              },
+            },
+          },
+        );
+
+        document.getElementById("note-spread").style.display =
+          spreadAnomalies > 0 ? "block" : "none";
+
+        // ── Chart 3: Stacked area ──
+        buildChart(
+          "chart-bidders",
+          "line",
+          labels,
+          [
+            {
+              label: "Indirect Bidder",
+              data: indirectArr,
+              borderColor: C.indirect,
+              backgroundColor: "rgba(0,212,245,0.3)",
+              fill: true,
+              tension: 0.3,
+              borderWidth: 1.5,
+              pointRadius: 2,
+              pointBackgroundColor: C.indirect,
+            },
+            {
+              label: "Direct Bidder",
+              data: directArr,
+              borderColor: C.direct,
+              backgroundColor: "rgba(29,233,182,0.3)",
+              fill: true,
+              tension: 0.3,
+              borderWidth: 1.5,
+              pointRadius: 2,
+              pointBackgroundColor: C.direct,
+            },
+            {
+              label: "Primary Dealer",
+              data: primaryArr,
+              borderColor: C.primary,
+              backgroundColor: "rgba(245,166,35,0.3)",
+              fill: true,
+              tension: 0.3,
+              borderWidth: 1.5,
+              pointRadius: data.map((d) => (d.primaryAnomaly ? 7 : 2)),
+              pointBackgroundColor: data.map((d) =>
+                d.primaryAnomaly ? C.red : C.primary,
+              ),
+              pointBorderColor: data.map((d) =>
+                d.primaryAnomaly ? "#fff" : C.primary,
+              ),
+              pointBorderWidth: data.map((d) => (d.primaryAnomaly ? 2 : 0)),
+            },
+          ],
+          {
+            scales: {
+              y: {
+                stacked: true,
+                grid: { color: C.border },
+                ticks: {
+                  color: C.muted,
+                  font: { size: 10 },
+                  callback: (v) => v + "%",
+                },
+              },
+              x: { stacked: true },
+            },
+          },
+          true,
+        );
+
+        // Guide source — MM/DD/YYYY 포맷을 Date로 변환해서 정렬
+        const parseDateStr = (s) => {
+          const p = s.split("/");
+          return new Date(
+            `${p[2]}-${p[0].padStart(2, "0")}-${p[1].padStart(2, "0")}`,
+          );
+        };
+        const sortedDates = [...data.map((d) => d.auction_date)].sort(
+          (a, b) => parseDateStr(a) - parseDateStr(b),
+        );
+        if (sortedDates.length >= 2) {
+          document.getElementById("guide-source").textContent =
+            `데이터: US Treasury / TreasuryDirect · 기간: ${sortedDates[0]} ~ ${sortedDates[sortedDates.length - 1]}`;
+        }
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // CHART BUILDER
+      // ════════════════════════════════════════════════════════════════
+      function buildChart(
+        id,
+        type,
+        labels,
+        datasets,
+        extraOptions = {},
+        tall = false,
+      ) {
+        if (charts[id]) {
+          charts[id].destroy();
+        }
+        const canvas = document.getElementById(id);
+        const ctx = canvas.getContext("2d");
+
+        const options = {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: {
+              labels: {
+                color: C.muted,
+                font: { size: 11 },
+                boxWidth: 12,
+                padding: 16,
+              },
+            },
+            tooltip: {
+              backgroundColor: "#0b1120",
+              borderColor: C.border,
+              borderWidth: 1,
+              titleColor: C.muted,
+              bodyColor: C.text,
+              padding: 12,
+              callbacks: {
+                label: (ctx) => {
+                  const v = ctx.parsed.y;
+                  if (v == null) return "";
+                  const label = ctx.dataset.label || "";
+                  const unit =
+                    label.includes("%") ||
+                    label.includes("Bidder") ||
+                    label.includes("Dealer")
+                      ? "%"
+                      : label.includes("Spread")
+                        ? "bp"
+                        : "";
+                  return ` ${label}: ${v.toFixed(2)}${unit}`;
+                },
+              },
+            },
+            ...extraOptions.plugins,
+          },
+          scales: {
+            x: {
+              grid: { color: C.border },
+              ticks: {
+                color: C.muted,
+                font: { size: 10 },
+                maxTicksLimit: 8,
+                maxRotation: 30,
+              },
+              ...(extraOptions.scales?.x || {}),
+            },
+            ...(extraOptions.scales || {}),
+          },
+        };
+
+        charts[id] = new Chart(ctx, {
+          type,
+          data: { labels, datasets },
+          options,
+        });
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // KPI HELPERS
+      // ════════════════════════════════════════════════════════════════
+      function setKPI(valId, subId, cardId, value, sub, color, warn) {
+        document.getElementById(valId).textContent = value;
+        document.getElementById(valId).style.color = color;
+        if (subId) document.getElementById(subId).textContent = sub || "";
+        document.getElementById(cardId).classList.toggle("warn", !!warn);
+      }
+
+      function clearKPIs() {
+        ["kv-rate", "kv-btc", "kv-indirect", "kv-alloc", "kv-spread"].forEach(
+          (id) => {
+            document.getElementById(id).textContent = "—";
+          },
+        );
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // TERM FILTER BUILD
+      // ════════════════════════════════════════════════════════════════
+      function buildTermFilter() {
+        const container = document.getElementById("term-filter");
+        container.innerHTML = "";
+        allTerms.forEach((term) => {
+          const btn = document.createElement("button");
+          btn.className = "term-btn" + (term === selectedTerm ? " active" : "");
+          btn.textContent = term;
+          btn.onclick = () => {
+            selectedTerm = term;
+            document
+              .querySelectorAll(".term-btn")
+              .forEach((b) =>
+                b.classList.toggle("active", b.textContent === term),
+              );
+            renderDashboard();
+          };
+          container.appendChild(btn);
+        });
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // FILE LOAD
+      // ════════════════════════════════════════════════════════════════
+      function loadCSV(file) {
+        if (!file || !file.name.endsWith(".csv")) {
+          showError("CSV 파일(.csv)만 지원됩니다.");
+          return;
+        }
+
+        showLoading(true);
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            RAW_DATA = parseCSV(e.target.result);
+            if (!RAW_DATA.length) throw new Error("데이터가 없습니다.");
+
+            allTerms = [...new Set(RAW_DATA.map((d) => d.term))].sort(
+              (a, b) => {
+                const order = [
+                  "4-Week",
+                  "6-Week",
+                  "8-Week",
+                  "13-Week",
+                  "17-Week",
+                  "26-Week",
+                  "52-Week",
+                  "1-Year 11-Month",
+                  "2-Year",
+                  "3-Year",
+                  "5-Year",
+                  "7-Year",
+                  "9-Year 10-Month",
+                  "9-Year 11-Month",
+                  "10-Year",
+                  "19-Year 10-Month",
+                  "19-Year 11-Month",
+                  "20-Year",
+                  "29-Year 10-Month",
+                  "29-Year 11-Month",
+                  "30-Year",
+                ];
+                const ia = order.indexOf(a),
+                  ib = order.indexOf(b);
+                if (ia === -1 && ib === -1) return a.localeCompare(b);
+                if (ia === -1) return 1;
+                if (ib === -1) return -1;
+                return ia - ib;
+              },
+            );
+
+            // Pick term with most data as default
+            const countByTerm = {};
+            RAW_DATA.forEach((d) => {
+              countByTerm[d.term] = (countByTerm[d.term] || 0) + 1;
+            });
+            selectedTerm = allTerms.reduce(
+              (best, t) =>
+                countByTerm[t] > (countByTerm[best] || 0) ? t : best,
+              allTerms[0],
+            );
+
+            buildTermFilter();
+
+            document.getElementById("upload-screen").style.display = "none";
+            document.getElementById("dashboard").style.display = "block";
+            renderDashboard();
+          } catch (err) {
+            showError("파싱 오류: " + err.message);
+          } finally {
+            showLoading(false);
+          }
+        };
+        reader.onerror = () => {
+          showError("파일을 읽을 수 없습니다.");
+          showLoading(false);
+        };
+        reader.readAsText(file, "UTF-8");
+      }
+
+      function showError(msg) {
+        const el = document.getElementById("upload-error");
+        el.textContent = "⚠ " + msg;
+        el.style.display = "block";
+        showLoading(false);
+      }
+
+      function showLoading(v) {
+        document.getElementById("loading").style.display = v ? "flex" : "none";
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // EVENT WIRING
+      // ════════════════════════════════════════════════════════════════
+      document.addEventListener("DOMContentLoaded", () => {
+        const input = document.getElementById("csv-input");
+        const zone = document.getElementById("upload-zone");
+        const reloadBtn = document.getElementById("reload-btn");
+
+        input.addEventListener("change", (e) => {
+          if (e.target.files[0]) loadCSV(e.target.files[0]);
+        });
+
+        zone.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          zone.classList.add("drag-over");
+        });
+        zone.addEventListener("dragleave", () =>
+          zone.classList.remove("drag-over"),
+        );
+        zone.addEventListener("drop", (e) => {
+          e.preventDefault();
+          zone.classList.remove("drag-over");
+          if (e.dataTransfer.files[0]) loadCSV(e.dataTransfer.files[0]);
+        });
+
+        reloadBtn.addEventListener("click", () => {
+          document.getElementById("dashboard").style.display = "none";
+          document.getElementById("upload-screen").style.display = "flex";
+          document.getElementById("upload-error").style.display = "none";
+          input.value = "";
+          Object.values(charts).forEach((c) => c.destroy());
+        });
+      });
+    </script>
+  </body>
+</html>
