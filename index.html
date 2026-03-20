@@ -2911,7 +2911,7 @@
         const url =
           BASE +
           "/v1/accounting/dts/operating_cash_balance" +
-          `?filter=auction_date:gte:${fromDate},auction_date:lte:${toDate}` +
+          `?filter=record_date:gte:${fromDate},record_date:lte:${toDate}` +
           "&sort=record_date&page[size]=500";
 
         try {
@@ -3281,7 +3281,7 @@
             const url =
               AUCTION_API +
               `?fields=${fields}` +
-              `&filter=record_date:gte:${from},record_date:lte:${to}` +
+              `&filter=auction_date:gte:${from},auction_date:lte:${to}` +
               `&sort=-auction_date` +
               `&page[number]=${page}&page[size]=${pageSize}`;
 
