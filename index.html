@@ -3,9 +3,238 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="author" content="@hel.lounderworld & claude" />
+    <meta name="author" content="hel.lounderworld & Claude.ai" />
     <title>US Treasury Auction Dashboard</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"
+    >
+      // ════════════════════════════════════════════════════════════════
+      // TAB SWITCHING
+      // ════════════════════════════════════════════════════════════════
+      let activeTab = 'auction';
+
+      function switchTab(tabId) {
+        activeTab = tabId;
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + tabId));
+        if (tabId === 'calendar') renderCalendar();
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // CALENDAR STATE & HELPERS
+      // ════════════════════════════════════════════════════════════════
+      let calYear  = new Date().getFullYear();
+      let calMonth = new Date().getMonth(); // 0-based
+
+      const TYPE_COLOR = { Bill: '#00d4f5', Note: '#a78bfa', Bond: '#f5a623' };
+      const TYPE_ORDER = ['Bill', 'Note', 'Bond'];
+
+      // 달력 셀: 짧게 표시 (1자리)
+      function fmtBillion(v) {
+        if (!v || v <= 0) return '—';
+        if (v >= 1e12) return (v / 1e12).toFixed(2) + 'T';
+        if (v >= 1e9)  return (v / 1e9).toFixed(1) + 'B';
+        if (v >= 1e6)  return (v / 1e6).toFixed(0) + 'M';
+        return v.toFixed(0);
+      }
+
+      // 팝업: 항상 소수점 3자리 B 고정
+      function fmtB3(v) {
+        if (!v || v <= 0) return '—';
+        return (v / 1e9).toFixed(3) + 'B';
+      }
+
+      // MM/DD/YYYY → Date
+      function parseIssueDate(s) {
+        if (!s) return null;
+        const p = s.split('/');
+        if (p.length < 3) return null;
+        return new Date(+p[2], +p[0] - 1, +p[1]);
+      }
+
+      // 전체 데이터를 Issue Date × Security Type 으로 집계
+      function buildCalData() {
+        // dayKey: 'YYYY-MM-DD' → { Bill, Note, Bond, total, items[] }
+        const map = {};
+        RAW_DATA.forEach(row => {
+          const dt = parseIssueDate(row.issue_date);
+          if (!dt || !row.total_accepted || row.total_accepted <= 0) return;
+          const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+          if (!map[key]) map[key] = { Bill: 0, Note: 0, Bond: 0, total: 0, items: [] };
+          const t = row.type || 'Bill';
+          map[key][t] = (map[key][t] || 0) + row.total_accepted;
+          map[key].total += row.total_accepted;
+          map[key].items.push(row);
+        });
+        return map;
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // CALENDAR RENDER
+      // ════════════════════════════════════════════════════════════════
+      function renderCalendar() {
+        const calData = buildCalData();
+
+        // 해당 월에 데이터 있는지 확인, 없으면 데이터 있는 달로 이동
+        const monthKeys = Object.keys(calData).map(k => k.slice(0,7)).filter((v,i,a)=>a.indexOf(v)===i).sort();
+        if (monthKeys.length > 0) {
+          const targetKey = `${calYear}-${String(calMonth+1).padStart(2,'0')}`;
+          if (!monthKeys.includes(targetKey)) {
+            // 가장 최근 데이터 달로 이동
+            const latest = monthKeys[monthKeys.length - 1];
+            calYear  = +latest.slice(0,4);
+            calMonth = +latest.slice(5,7) - 1;
+          }
+        }
+
+        const y = calYear, m = calMonth;
+        const monthLabel = new Date(y, m, 1).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });
+        document.getElementById('cal-month-label').textContent = monthLabel;
+
+        // 월 총계
+        const monthPrefix = `${y}-${String(m+1).padStart(2,'0')}`;
+        let monthTotal = 0;
+        Object.entries(calData).forEach(([k, v]) => { if (k.startsWith(monthPrefix)) monthTotal += v.total; });
+        document.getElementById('cal-month-total').textContent =
+          `${monthLabel} 결제 총액: ${fmtBillion(monthTotal)}`;
+
+        // 최대값 (heatmap 정규화용)
+        const monthVals = Object.entries(calData).filter(([k]) => k.startsWith(monthPrefix)).map(([,v]) => v.total);
+        const maxVal = monthVals.length ? Math.max(...monthVals) : 1;
+
+        const grid = document.getElementById('cal-grid');
+        grid.innerHTML = '';
+
+        // 요일 헤더
+        ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
+          const el = document.createElement('div');
+          el.className = 'cal-dow';
+          el.textContent = d;
+          grid.appendChild(el);
+        });
+
+        // 1일 시작 요일 (0=일)
+        const firstDow = new Date(y, m, 1).getDay();
+        const daysInMonth = new Date(y, m + 1, 0).getDate();
+        const today = new Date();
+
+        // 빈 셀
+        for (let i = 0; i < firstDow; i++) {
+          const el = document.createElement('div');
+          el.className = 'cal-cell empty';
+          grid.appendChild(el);
+        }
+
+        // 날짜 셀
+        for (let d = 1; d <= daysInMonth; d++) {
+          const key = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const dayData = calData[key];
+          const isToday = (today.getFullYear()===y && today.getMonth()===m && today.getDate()===d);
+
+          const cell = document.createElement('div');
+          cell.className = 'cal-cell' +
+            (dayData ? ' has-data' : '') +
+            (isToday ? ' today' : '');
+
+          if (dayData) {
+            const intensity = dayData.total / maxVal;
+            cell.style.setProperty('--intensity', intensity.toFixed(3));
+          }
+
+          // 날짜 숫자
+          const dayNum = document.createElement('div');
+          dayNum.className = 'cal-day-num';
+          dayNum.textContent = d;
+          cell.appendChild(dayNum);
+
+          if (dayData) {
+            const bars = document.createElement('div');
+            bars.className = 'cal-bars';
+
+            TYPE_ORDER.forEach(type => {
+              if (!dayData[type]) return;
+              const row = document.createElement('div');
+              row.className = 'cal-bar-row';
+              row.innerHTML = `
+                <div class="cal-bar-dot" style="background:${TYPE_COLOR[type]}"></div>
+                <span class="cal-bar-label">${type}</span>
+                <span class="cal-bar-val">${fmtBillion(dayData[type])}</span>
+              `;
+              bars.appendChild(row);
+            });
+
+            // 합계
+            const totalRow = document.createElement('div');
+            totalRow.className = 'cal-total-row';
+            totalRow.innerHTML = `
+              <span class="cal-total-label">합계</span>
+              <span class="cal-total-val">${fmtBillion(dayData.total)}</span>
+            `;
+            bars.appendChild(totalRow);
+            cell.appendChild(bars);
+
+            // 클릭 → 팝업
+            cell.addEventListener('click', () => openPopup(key, dayData));
+          }
+
+          grid.appendChild(cell);
+        }
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // POPUP
+      // ════════════════════════════════════════════════════════════════
+      function openPopup(dateKey, dayData) {
+        const [y, mo, d] = dateKey.split('-');
+        const dt = new Date(+y, +mo-1, +d);
+        const dateStr = dt.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+
+        document.getElementById('popup-date-label').textContent = 'Issue Date';
+        document.getElementById('popup-total-label').textContent = dateStr;
+
+        const rowsEl = document.getElementById('popup-rows');
+        rowsEl.innerHTML = '';
+
+        TYPE_ORDER.forEach(type => {
+          if (!dayData[type]) return;
+          const items = dayData.items.filter(r => r.type === type);
+          const color = TYPE_COLOR[type];
+
+          // ── 타입 헤더 행 (합산 금액)
+          const typeRow = document.createElement('div');
+          typeRow.className = 'cal-popup-row';
+          typeRow.innerHTML = `
+            <div class="cal-popup-type">
+              <div class="cal-popup-type-dot" style="background:${color}"></div>
+              ${type}
+            </div>
+            <div class="cal-popup-amount">${fmtB3(dayData[type])}</div>
+          `;
+          rowsEl.appendChild(typeRow);
+
+          // ── 만기별 개별 행
+          items.forEach(item => {
+            const termRow = document.createElement('div');
+            termRow.className = 'cal-popup-term-row';
+            termRow.innerHTML = `
+              <div class="cal-popup-term-label">
+                <div class="cal-popup-term-bar" style="background:${color}"></div>
+                ${item.term}
+              </div>
+              <div class="cal-popup-term-amt">${fmtB3(item.total_accepted)}</div>
+            `;
+            rowsEl.appendChild(termRow);
+          });
+        });
+
+        document.getElementById('popup-grand-total').textContent = fmtB3(dayData.total);
+        document.getElementById('cal-popup-overlay').classList.add('open');
+      }
+
+      function closePopup() {
+        document.getElementById('cal-popup-overlay').classList.remove('open');
+      }
+    </script>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;600;700;800&display=swap");
 
@@ -26,6 +255,23 @@
         --primary-c: #f5a623;
       }
 
+      [data-theme="light"] {
+        --bg: #f0f4f8;
+        --panel: #ffffff;
+        --panel2: #f8fafc;
+        --border: #cbd5e1;
+        --accent: #0284c7;
+        --gold: #d97706;
+        --green: #059669;
+        --red: #e11d48;
+        --violet: #7c3aed;
+        --text: #0f172a;
+        --muted: #64748b;
+        --indirect: #0284c7;
+        --direct: #059669;
+        --primary-c: #d97706;
+      }
+
       *,
       *::before,
       *::after {
@@ -40,6 +286,9 @@
         font-family: "IBM Plex Sans", sans-serif;
         min-height: 100vh;
         overflow-x: hidden;
+        transition:
+          background 0.25s,
+          color 0.25s;
       }
 
       /* ── UPLOAD SCREEN ─────────────────────────── */
@@ -55,6 +304,7 @@
           rgba(0, 212, 245, 0.07) 0%,
           transparent 70%
         );
+        transition: background 0.3s;
       }
 
       .upload-badge {
@@ -69,7 +319,7 @@
         font-size: clamp(24px, 5vw, 42px);
         font-weight: 800;
         letter-spacing: -0.03em;
-        color: #fff;
+        color: var(--text);
         text-align: center;
         margin-bottom: 10px;
       }
@@ -178,7 +428,7 @@
         font-size: clamp(18px, 3vw, 28px);
         font-weight: 800;
         letter-spacing: -0.03em;
-        color: #fff;
+        color: var(--text);
       }
       .dash-subtitle {
         color: var(--muted);
@@ -344,7 +594,7 @@
       .chart-title {
         font-size: 14px;
         font-weight: 700;
-        color: #fff;
+        color: var(--text);
         margin-bottom: 3px;
       }
       .chart-desc {
@@ -387,7 +637,7 @@
       .guide-title {
         font-size: 13px;
         font-weight: 700;
-        color: #fff;
+        color: var(--text);
         margin-bottom: 10px;
       }
 
@@ -460,6 +710,492 @@
         background: var(--border);
         border-radius: 3px;
       }
+
+      /* ── TABS ──────────────────────────────────── */
+      .tab-bar {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 24px;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 0;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .tab-bar-left {
+        display: flex;
+        gap: 4px;
+        align-items: flex-end;
+      }
+
+      /* ── THEME TOGGLE ───────────────────────────── */
+      .theme-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 1px;
+        flex-shrink: 0;
+      }
+
+      .theme-toggle-label {
+        font-size: 11px;
+        color: var(--muted);
+        user-select: none;
+      }
+
+      .toggle-track {
+        position: relative;
+        width: 40px;
+        height: 22px;
+        background: var(--border);
+        border-radius: 11px;
+        cursor: pointer;
+        transition: background 0.25s;
+        border: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+
+      .toggle-track.light-on {
+        background: var(--accent);
+      }
+
+      .toggle-thumb {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        background: #fff;
+        border-radius: 50%;
+        transition: transform 0.25s;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+      }
+
+      .toggle-track.light-on .toggle-thumb {
+        transform: translateX(18px);
+      }
+
+      .tab-btn {
+        padding: 9px 22px;
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        transition:
+          color 0.2s,
+          border-color 0.2s;
+        letter-spacing: 0.01em;
+      }
+
+      .tab-btn:hover {
+        color: var(--text);
+      }
+
+      .tab-btn.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+      }
+
+      .tab-content {
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+
+      /* ── CALENDAR ───────────────────────────────── */
+      .cal-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+
+      .cal-nav {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .cal-nav-btn {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 8px;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 15px;
+        transition:
+          border-color 0.2s,
+          color 0.2s;
+        font-family: inherit;
+      }
+
+      .cal-nav-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .cal-month-label {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--text);
+        min-width: 110px;
+        text-align: center;
+      }
+
+      .cal-total-badge {
+        margin-left: auto;
+        background: rgba(0, 212, 245, 0.1);
+        border: 1px solid var(--accent);
+        border-radius: 10px;
+        padding: 6px 16px;
+        font-size: 12px;
+        color: var(--accent);
+        font-family: "IBM Plex Mono", monospace;
+        font-weight: 600;
+      }
+
+      .cal-legend {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+
+      .cal-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .cal-legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        flex-shrink: 0;
+      }
+
+      .cal-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 6px;
+      }
+
+      .cal-dow {
+        text-align: center;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--muted);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding-bottom: 8px;
+      }
+
+      .cal-cell {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        min-height: 88px;
+        padding: 8px;
+        position: relative;
+        transition: border-color 0.2s;
+        cursor: default;
+      }
+
+      .cal-cell.empty {
+        background: transparent;
+        border-color: transparent;
+      }
+
+      .cal-cell.has-data {
+        cursor: pointer;
+      }
+
+      .cal-cell.has-data:hover {
+        border-color: var(--accent);
+      }
+
+      .cal-cell.today {
+        border-color: rgba(0, 212, 245, 0.4);
+      }
+
+      .cal-day-num {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+
+      .cal-cell.today .cal-day-num {
+        color: var(--accent);
+      }
+      .cal-cell.has-data .cal-day-num {
+        color: var(--text);
+      }
+
+      .cal-bars {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-top: 4px;
+      }
+
+      .cal-bar-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 9px;
+      }
+
+      .cal-bar-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 1px;
+        flex-shrink: 0;
+      }
+
+      .cal-bar-label {
+        color: var(--muted);
+        font-size: 9px;
+        white-space: nowrap;
+      }
+
+      .cal-bar-val {
+        color: var(--text);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        font-weight: 600;
+        margin-left: auto;
+        white-space: nowrap;
+      }
+
+      .cal-total-row {
+        margin-top: 5px;
+        padding-top: 4px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .cal-total-label {
+        font-size: 9px;
+        color: var(--muted);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .cal-total-val {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--accent);
+      }
+
+      /* heatmap intensity via CSS var */
+      .cal-cell.has-data {
+        --intensity: 0;
+        background: linear-gradient(
+          135deg,
+          rgba(0, 212, 245, calc(var(--intensity) * 0.18)) 0%,
+          var(--panel) 100%
+        );
+      }
+
+      /* ── DETAIL POPUP ───────────────────────────── */
+      .cal-popup-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 200;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .cal-popup-overlay.open {
+        display: flex;
+      }
+
+      .cal-popup {
+        background: var(--panel2);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 28px 32px;
+        min-width: 320px;
+        max-width: 480px;
+        width: 90%;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+      }
+
+      .cal-popup-date {
+        font-size: 11px;
+        color: var(--accent);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+      }
+
+      .cal-popup-title {
+        font-size: 20px;
+        font-weight: 800;
+        color: var(--text);
+        margin-bottom: 20px;
+      }
+
+      .cal-popup-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+
+      .cal-popup-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--panel);
+        border-radius: 8px;
+        padding: 10px 14px;
+      }
+
+      .cal-popup-type {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+      }
+
+      .cal-popup-type-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+      }
+
+      .cal-popup-amount {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .cal-popup-detail {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 3px;
+      }
+
+      .cal-popup-total {
+        border-top: 1px solid var(--border);
+        padding-top: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .cal-popup-total-label {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+
+      .cal-popup-total-val {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 20px;
+        font-weight: 800;
+        color: var(--accent);
+      }
+
+      .cal-popup-close {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        border-radius: 6px;
+        width: 28px;
+        height: 28px;
+        cursor: pointer;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        font-family: inherit;
+      }
+
+      .cal-popup-close:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .cal-popup {
+        position: relative;
+      }
+
+      .cal-popup-term-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 5px 14px 5px 24px;
+        margin-top: -6px;
+        border-left: 1px solid var(--border);
+        margin-left: 14px;
+      }
+
+      .cal-popup-term-label {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .cal-popup-term-bar {
+        width: 3px;
+        height: 14px;
+        border-radius: 2px;
+        opacity: 0.6;
+        flex-shrink: 0;
+      }
+
+      .cal-popup-term-amt {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+      }
+
+      @media (max-width: 600px) {
+        .cal-grid {
+          gap: 3px;
+        }
+        .cal-cell {
+          min-height: 68px;
+          padding: 5px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -474,14 +1210,15 @@
       <div class="upload-badge">◈ Macro Intelligence</div>
       <h1 class="upload-title">US Treasury Auction<br />Dashboard</h1>
       <p class="upload-sub">
-         <a
+        <a
           href="https://www.treasurydirect.gov/auctions/auction-query/"
           target="_blank"
           style="color: #00d4f5"
         >
           TreasuryDirect</a
-        >에서 다운로드한 CSV 파일을 업로드하면<br />입찰 수요 ·
-        외국인 참여 · Tail 스프레드를 즉시 분석합니다.<br />
+        >에서 다운로드한 CSV 파일을 업로드하면<br />입찰 수요 · 외국인 참여 ·
+        Tail 스프레드를 즉시 분석합니다.
+        <br />
         <details
           style="margin-bottom: 20px; margin-left: auto; margin-right: auto"
         >
@@ -528,144 +1265,217 @@
 
     <!-- ══ DASHBOARD ══════════════════════════════════════════════ -->
     <div id="dashboard">
-      <div class="dash-header">
-        <div>
-          <div class="dash-meta">◈ Macro Intelligence</div>
-          <div class="dash-title">US Treasury Auction Dashboard</div>
-          <div class="dash-subtitle">
-            입찰 수요 · 외국인 참여 · 테일 스프레드 종합 분석
-          </div>
-        </div>
-        <div class="anomaly-badges">
-          <div class="badge badge-red" id="badge-spread"></div>
-          <div class="badge badge-gold" id="badge-primary"></div>
-          <button class="reload-btn" id="reload-btn">
-            ↩ 파일 다시 불러오기
+      <!-- TAB BAR -->
+      <div class="tab-bar">
+        <div class="tab-bar-left">
+          <button class="tab-btn active" data-tab="auction">
+            📊 입찰 분석
           </button>
+          <button class="tab-btn" data-tab="calendar">📅 결제 달력</button>
         </div>
-      </div>
-
-      <div class="term-filter" id="term-filter"></div>
-
-      <div class="kpi-grid" id="kpi-grid">
-        <div class="kpi-card" id="kpi-rate">
-          <div class="kpi-label">High Rate</div>
-          <div class="kpi-value" id="kv-rate" style="color: var(--accent)">
-            —
-          </div>
-          <div class="kpi-sub" id="ks-rate"></div>
-        </div>
-        <div class="kpi-card" id="kpi-btc">
-          <div class="kpi-label">Bid-to-Cover</div>
-          <div class="kpi-value" id="kv-btc">—</div>
-          <div class="kpi-sub" id="ks-btc"></div>
-        </div>
-        <div class="kpi-card" id="kpi-indirect">
-          <div class="kpi-label">Indirect 비중</div>
+        <div class="theme-toggle">
+          <span class="theme-toggle-label" id="theme-label">🌙 Dark</span>
           <div
-            class="kpi-value"
-            id="kv-indirect"
-            style="color: var(--indirect)"
+            class="toggle-track"
+            id="theme-track"
+            role="switch"
+            aria-checked="false"
+            tabindex="0"
           >
-            —
+            <div class="toggle-thumb">🌙</div>
           </div>
-          <div class="kpi-sub">외국 중앙은행 대리 수요</div>
-        </div>
-        <div class="kpi-card" id="kpi-alloc">
-          <div class="kpi-label">Allocation %</div>
-          <div class="kpi-value" id="kv-alloc" style="color: var(--violet)">
-            —
-          </div>
-          <div class="kpi-sub">낙찰 비율</div>
-        </div>
-        <div class="kpi-card" id="kpi-spread">
-          <div class="kpi-label">Tail Spread</div>
-          <div class="kpi-value" id="kv-spread">—</div>
-          <div class="kpi-sub">High − Median Rate</div>
         </div>
       </div>
 
-      <div id="no-data" class="no-data" style="display: none">
-        선택한 만기에 표시할 데이터가 없습니다.
-      </div>
-
-      <div id="charts-container">
-        <div class="charts-grid">
-          <!-- Chart 1: BTC + Indirect -->
-          <div class="chart-panel">
-            <div class="chart-head">
-              <div class="chart-title">수요 트렌드</div>
-              <div class="chart-desc">
-                Bid-to-Cover Ratio &amp; Indirect Bidder 비중
-              </div>
-            </div>
-            <div class="chart-wrap"><canvas id="chart-demand"></canvas></div>
-          </div>
-
-          <!-- Chart 2: Alloc + Spread -->
-          <div class="chart-panel">
-            <div class="chart-head">
-              <div class="chart-title">낙찰 열기</div>
-              <div class="chart-desc">Allocation % &amp; Tail Spread (bp)</div>
-            </div>
-            <div class="chart-wrap"><canvas id="chart-heat"></canvas></div>
-            <div class="anomaly-note" id="note-spread">
-              ⚠ 빨간 점 = Tail 이상 확대 구간 (평균 +1.5σ 초과). 투자자 수요
-              약화 신호.
-            </div>
-          </div>
-
-          <!-- Chart 3: Stacked Area -->
-          <div class="chart-panel wide">
-            <div class="chart-head">
-              <div class="chart-title">주체별 낙찰 비중 추이</div>
-              <div class="chart-desc" id="chart3-desc">
-                Primary Dealer · Direct Bidder · Indirect Bidder — 누적 영역
-                차트
-              </div>
-            </div>
-            <div class="chart-wrap-tall">
-              <canvas id="chart-bidders"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <!-- Guide -->
-        <div class="guide">
+      <!-- TAB 1: 입찰 분석 -->
+      <div class="tab-content active" id="tab-auction">
+        <div class="dash-header">
           <div>
-            <div class="guide-title">📖 해석 가이드</div>
-            <div class="guide-items">
-              <div class="guide-item">
-                <span style="color: var(--indirect)">●</span>
-                <b>Indirect ↑</b> — 외국 중앙은행·국부펀드 수요 강세, 달러
-                안전자산 선호
-              </div>
-              <div class="guide-item">
-                <span style="color: var(--primary-c)">●</span>
-                <b>Primary Dealer ↑</b> — 시장 내수가 약할 때 딜러가 재고 흡수.
-                유동성 경고 신호
-              </div>
-              <div class="guide-item">
-                <span style="color: var(--red)">●</span> <b>Tail Spread ↑</b> —
-                High vs Median 차이 확대. 수요 불균형, 가격 발견 압력
-              </div>
-              <div class="guide-item">
-                <span style="color: var(--accent)">●</span> <b>BTC 하락</b> —
-                응찰 배율 감소. 투자자 수요 약화 또는 발행 규모 확대
-              </div>
-              <div class="guide-item">
-                <span style="color: #c084fc">●</span> <b>FIMA ↑</b> — 외국
-                공공기관의 비경쟁 낙찰. 중앙은행의 직접 참여 신호
-              </div>
-              <div class="guide-item">
-                <span style="color: #fb7185">●</span> <b>SOMA ↑</b> — 연준의
-                공개시장조작 계정 낙찰. QE/QT 사이클 반영
-              </div>
-              <div class="guide-item">@hel.lounderworld x Claude.ai</div>
+            <div class="dash-meta">◈ Macro Intelligence</div>
+            <div class="dash-title">US Treasury Auction Dashboard</div>
+            <div class="dash-subtitle">
+              입찰 수요 · 외국인 참여 · 테일 스프레드 종합 분석
             </div>
           </div>
-          <div class="guide-source" id="guide-source">
-            데이터: US Treasury / TreasuryDirect
+          <div class="anomaly-badges">
+            <div class="badge badge-red" id="badge-spread"></div>
+            <div class="badge badge-gold" id="badge-primary"></div>
+            <button class="reload-btn" id="reload-btn">
+              ↩ 파일 다시 불러오기
+            </button>
+          </div>
+        </div>
+
+        <div class="term-filter" id="term-filter"></div>
+
+        <div class="kpi-grid" id="kpi-grid">
+          <div class="kpi-card" id="kpi-rate">
+            <div class="kpi-label">High Rate</div>
+            <div class="kpi-value" id="kv-rate" style="color: var(--accent)">
+              —
+            </div>
+            <div class="kpi-sub" id="ks-rate"></div>
+          </div>
+          <div class="kpi-card" id="kpi-btc">
+            <div class="kpi-label">Bid-to-Cover</div>
+            <div class="kpi-value" id="kv-btc">—</div>
+            <div class="kpi-sub" id="ks-btc"></div>
+          </div>
+          <div class="kpi-card" id="kpi-indirect">
+            <div class="kpi-label">Indirect 비중</div>
+            <div
+              class="kpi-value"
+              id="kv-indirect"
+              style="color: var(--indirect)"
+            >
+              —
+            </div>
+            <div class="kpi-sub">외국 중앙은행 대리 수요</div>
+          </div>
+          <div class="kpi-card" id="kpi-alloc">
+            <div class="kpi-label">Allocation %</div>
+            <div class="kpi-value" id="kv-alloc" style="color: var(--violet)">
+              —
+            </div>
+            <div class="kpi-sub">낙찰 비율</div>
+          </div>
+          <div class="kpi-card" id="kpi-spread">
+            <div class="kpi-label">Tail Spread</div>
+            <div class="kpi-value" id="kv-spread">—</div>
+            <div class="kpi-sub">High − Median Rate</div>
+          </div>
+        </div>
+
+        <div id="no-data" class="no-data" style="display: none">
+          선택한 만기에 표시할 데이터가 없습니다.
+        </div>
+
+        <div id="charts-container">
+          <div class="charts-grid">
+            <!-- Chart 1: BTC + Indirect -->
+            <div class="chart-panel">
+              <div class="chart-head">
+                <div class="chart-title">수요 트렌드</div>
+                <div class="chart-desc">
+                  Bid-to-Cover Ratio &amp; Indirect Bidder 비중
+                </div>
+              </div>
+              <div class="chart-wrap"><canvas id="chart-demand"></canvas></div>
+            </div>
+
+            <!-- Chart 2: Alloc + Spread -->
+            <div class="chart-panel">
+              <div class="chart-head">
+                <div class="chart-title">낙찰 열기</div>
+                <div class="chart-desc">
+                  Allocation % &amp; Tail Spread (bp)
+                </div>
+              </div>
+              <div class="chart-wrap"><canvas id="chart-heat"></canvas></div>
+              <div class="anomaly-note" id="note-spread">
+                ⚠ 빨간 점 = Tail 이상 확대 구간 (평균 +1.5σ 초과). 투자자 수요
+                약화 신호.
+              </div>
+            </div>
+
+            <!-- Chart 3: Stacked Area -->
+            <div class="chart-panel wide">
+              <div class="chart-head">
+                <div class="chart-title">주체별 낙찰 비중 추이</div>
+                <div class="chart-desc" id="chart3-desc">
+                  Primary Dealer · Direct Bidder · Indirect Bidder — 누적 영역
+                  차트
+                </div>
+              </div>
+              <div class="chart-wrap-tall">
+                <canvas id="chart-bidders"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Guide -->
+          <div class="guide">
+            <div>
+              <div class="guide-title">📖 해석 가이드</div>
+              <div class="guide-items">
+                <div class="guide-item">
+                  <span style="color: var(--indirect)">●</span>
+                  <b>Indirect ↑</b> — 외국 중앙은행·국부펀드 수요 강세, 달러
+                  안전자산 선호
+                </div>
+                <div class="guide-item">
+                  <span style="color: var(--primary-c)">●</span>
+                  <b>Primary Dealer ↑</b> — 시장 내수가 약할 때 딜러가 재고
+                  흡수. 유동성 경고 신호
+                </div>
+                <div class="guide-item">
+                  <span style="color: var(--red)">●</span>
+                  <b>Tail Spread ↑</b> — High vs Median 차이 확대. 수요 불균형,
+                  가격 발견 압력
+                </div>
+                <div class="guide-item">
+                  <span style="color: var(--accent)">●</span> <b>BTC 하락</b> —
+                  응찰 배율 감소. 투자자 수요 약화 또는 발행 규모 확대
+                </div>
+                <div class="guide-item">
+                  <span style="color: #c084fc">●</span> <b>FIMA ↑</b> — 외국
+                  공공기관의 비경쟁 낙찰. 중앙은행의 직접 참여 신호
+                </div>
+                <div class="guide-item">
+                  <span style="color: #fb7185">●</span> <b>SOMA ↑</b> — 연준의
+                  공개시장조작 계정 낙찰. QE/QT 사이클 반영
+                </div>
+                <div class="guide-item">@hel.lounderworld x Claude.ai</div>
+              </div>
+            </div>
+            <div class="guide-source" id="guide-source">
+              데이터: US Treasury / TreasuryDirect
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /tab-auction -->
+
+      <!-- TAB 2: 결제 달력 -->
+      <div class="tab-content" id="tab-calendar">
+        <div class="cal-toolbar">
+          <div class="cal-nav">
+            <button class="cal-nav-btn" id="cal-prev">&#8249;</button>
+            <div class="cal-month-label" id="cal-month-label">—</div>
+            <button class="cal-nav-btn" id="cal-next">&#8250;</button>
+          </div>
+          <div class="cal-total-badge" id="cal-month-total">월 총계: —</div>
+        </div>
+
+        <div class="cal-legend">
+          <div class="cal-legend-item">
+            <div class="cal-legend-dot" style="background: #00d4f5"></div>
+            Bill
+          </div>
+          <div class="cal-legend-item">
+            <div class="cal-legend-dot" style="background: #a78bfa"></div>
+            Note
+          </div>
+          <div class="cal-legend-item">
+            <div class="cal-legend-dot" style="background: #f5a623"></div>
+            Bond
+          </div>
+        </div>
+
+        <div class="cal-grid" id="cal-grid"></div>
+      </div>
+      <!-- /tab-calendar -->
+
+      <!-- Detail Popup -->
+      <div class="cal-popup-overlay" id="cal-popup-overlay">
+        <div class="cal-popup">
+          <button class="cal-popup-close" id="cal-popup-close">✕</button>
+          <div class="cal-popup-date" id="popup-date-label"></div>
+          <div class="cal-popup-title" id="popup-total-label"></div>
+          <div class="cal-popup-rows" id="popup-rows"></div>
+          <div class="cal-popup-total">
+            <div class="cal-popup-total-label">당일 결제 총액</div>
+            <div class="cal-popup-total-val" id="popup-grand-total"></div>
           </div>
         </div>
       </div>
@@ -695,8 +1505,6 @@
         indirect: "#00d4f5",
         direct: "#1de9b6",
         primary: "#f5a623",
-        fima: "#c084fc",
-        soma: "#fb7185",
       };
 
       Chart.defaults.color = C.muted;
@@ -733,6 +1541,7 @@
         const iDirect = idx("Direct Bidder Accepted");
         const iPrimary = idx("Primary Dealer Accepted");
         const iTotal = idx("Total Accepted");
+        const iIssueDate = idx("Issue Date");
         const iFIMA = idx("FIMA Noncompetitive Accepted");
         const iSOMA = idx("SOMA Accepted");
 
@@ -795,6 +1604,7 @@
 
           rows.push({
             cusip: get(iCUSIP),
+            issue_date: get(iIssueDate),
             term: get(iTerm),
             type: get(iType),
             auction_date: get(iDate),
@@ -1183,24 +1993,24 @@
             {
               label: "FIMA",
               data: fimaArr,
-              borderColor: C.fima,
+              borderColor: "#c084fc",
               backgroundColor: "rgba(192,132,252,0.3)",
               fill: true,
               tension: 0.3,
               borderWidth: 1.5,
               pointRadius: 2,
-              pointBackgroundColor: C.fima,
+              pointBackgroundColor: "#c084fc",
             },
             {
               label: "SOMA",
               data: somaArr,
-              borderColor: C.soma,
+              borderColor: "#fb7185",
               backgroundColor: "rgba(251,113,133,0.25)",
               fill: true,
               tension: 0.3,
               borderWidth: 1.5,
               pointRadius: 2,
-              pointBackgroundColor: C.soma,
+              pointBackgroundColor: "#fb7185",
             },
           ],
           {
@@ -1282,8 +2092,8 @@
                     label.includes("%") ||
                     label.includes("Bidder") ||
                     label.includes("Dealer") ||
-                    label.includes("FIMA") ||
-                    label.includes("SOMA")
+                    label === "FIMA" ||
+                    label === "SOMA"
                       ? "%"
                       : label.includes("Spread")
                         ? "bp"
@@ -1473,16 +2283,341 @@
           if (e.dataTransfer.files[0]) loadCSV(e.dataTransfer.files[0]);
         });
 
+        // 탭 전환
+        document.querySelectorAll(".tab-btn").forEach((btn) => {
+          btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+        });
+
+        // 테마 토글
+        let isDark = true;
+        const themeTrack = document.getElementById("theme-track");
+        const themeLabel = document.getElementById("theme-label");
+        const themeThumb = themeTrack.querySelector(".toggle-thumb");
+
+        function applyTheme(dark) {
+          isDark = dark;
+          document.documentElement.setAttribute(
+            "data-theme",
+            dark ? "dark" : "light",
+          );
+          themeTrack.classList.toggle("light-on", !dark);
+          themeThumb.textContent = dark ? "🌙" : "☀️";
+          themeLabel.textContent = dark ? "🌙 Dark" : "☀️ Light";
+          // Chart.js 글로벌 색상 업데이트
+          const gridColor = dark ? "#1a2840" : "#e2e8f0";
+          const mutedColor = dark ? "#546a8a" : "#64748b";
+          Chart.defaults.color = mutedColor;
+          Chart.defaults.borderColor = gridColor;
+          // 현재 탭 차트 재렌더
+          if (activeTab === "auction" && typeof renderDashboard === "function")
+            renderDashboard();
+          if (activeTab === "calendar" && typeof renderCalendar === "function")
+            renderCalendar();
+        }
+
+        themeTrack.addEventListener("click", () => applyTheme(!isDark));
+        themeTrack.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            applyTheme(!isDark);
+          }
+        });
+
+        // 달력 네비
+        document.getElementById("cal-prev").addEventListener("click", () => {
+          calMonth--;
+          if (calMonth < 0) {
+            calMonth = 11;
+            calYear--;
+          }
+          renderCalendar();
+        });
+        document.getElementById("cal-next").addEventListener("click", () => {
+          calMonth++;
+          if (calMonth > 11) {
+            calMonth = 0;
+            calYear++;
+          }
+          renderCalendar();
+        });
+
+        // 팝업 닫기
+        document
+          .getElementById("cal-popup-close")
+          .addEventListener("click", closePopup);
+        document
+          .getElementById("cal-popup-overlay")
+          .addEventListener("click", (e) => {
+            if (e.target === e.currentTarget) closePopup();
+          });
+
         reloadBtn.addEventListener("click", () => {
           document.getElementById("dashboard").style.display = "none";
           document.getElementById("upload-screen").style.display = "flex";
           document.getElementById("upload-error").style.display = "none";
           input.value = "";
+          activeTab = "auction";
           Object.values(charts).forEach((c) => c.destroy());
         });
       });
 
-      console.log(fimaArr, primaryArr);
+      // ════════════════════════════════════════════════════════════════
+      // TAB SWITCHING
+      // ════════════════════════════════════════════════════════════════
+      let activeTab = "auction";
+
+      function switchTab(tabId) {
+        activeTab = tabId;
+        document
+          .querySelectorAll(".tab-btn")
+          .forEach((b) =>
+            b.classList.toggle("active", b.dataset.tab === tabId),
+          );
+        document
+          .querySelectorAll(".tab-content")
+          .forEach((c) =>
+            c.classList.toggle("active", c.id === "tab-" + tabId),
+          );
+        if (tabId === "calendar") renderCalendar();
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // CALENDAR STATE & HELPERS
+      // ════════════════════════════════════════════════════════════════
+      let calYear = new Date().getFullYear();
+      let calMonth = new Date().getMonth(); // 0-based
+
+      const TYPE_COLOR = { Bill: "#00d4f5", Note: "#a78bfa", Bond: "#f5a623" };
+      const TYPE_ORDER = ["Bill", "Note", "Bond"];
+
+      // 달력 셀: 짧게 표시 (1자리)
+      function fmtBillion(v) {
+        if (!v || v <= 0) return "—";
+        if (v >= 1e12) return (v / 1e12).toFixed(2) + "T";
+        if (v >= 1e9) return (v / 1e9).toFixed(1) + "B";
+        if (v >= 1e6) return (v / 1e6).toFixed(0) + "M";
+        return v.toFixed(0);
+      }
+
+      // 팝업: 항상 소수점 3자리 B 고정
+      function fmtB3(v) {
+        if (!v || v <= 0) return "—";
+        return (v / 1e9).toFixed(3) + "B";
+      }
+
+      // MM/DD/YYYY → Date
+      function parseIssueDate(s) {
+        if (!s) return null;
+        const p = s.split("/");
+        if (p.length < 3) return null;
+        return new Date(+p[2], +p[0] - 1, +p[1]);
+      }
+
+      // 전체 데이터를 Issue Date × Security Type 으로 집계
+      function buildCalData() {
+        // dayKey: 'YYYY-MM-DD' → { Bill, Note, Bond, total, items[] }
+        const map = {};
+        RAW_DATA.forEach((row) => {
+          const dt = parseIssueDate(row.issue_date);
+          if (!dt || !row.total_accepted || row.total_accepted <= 0) return;
+          const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+          if (!map[key])
+            map[key] = { Bill: 0, Note: 0, Bond: 0, total: 0, items: [] };
+          const t = row.type || "Bill";
+          map[key][t] = (map[key][t] || 0) + row.total_accepted;
+          map[key].total += row.total_accepted;
+          map[key].items.push(row);
+        });
+        return map;
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // CALENDAR RENDER
+      // ════════════════════════════════════════════════════════════════
+      function renderCalendar() {
+        const calData = buildCalData();
+
+        // 해당 월에 데이터 있는지 확인, 없으면 데이터 있는 달로 이동
+        const monthKeys = Object.keys(calData)
+          .map((k) => k.slice(0, 7))
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .sort();
+        if (monthKeys.length > 0) {
+          const targetKey = `${calYear}-${String(calMonth + 1).padStart(2, "0")}`;
+          if (!monthKeys.includes(targetKey)) {
+            // 가장 최근 데이터 달로 이동
+            const latest = monthKeys[monthKeys.length - 1];
+            calYear = +latest.slice(0, 4);
+            calMonth = +latest.slice(5, 7) - 1;
+          }
+        }
+
+        const y = calYear,
+          m = calMonth;
+        const monthLabel = new Date(y, m, 1).toLocaleDateString("ko-KR", {
+          year: "numeric",
+          month: "long",
+        });
+        document.getElementById("cal-month-label").textContent = monthLabel;
+
+        // 월 총계
+        const monthPrefix = `${y}-${String(m + 1).padStart(2, "0")}`;
+        let monthTotal = 0;
+        Object.entries(calData).forEach(([k, v]) => {
+          if (k.startsWith(monthPrefix)) monthTotal += v.total;
+        });
+        document.getElementById("cal-month-total").textContent =
+          `${monthLabel} 결제 총액: ${fmtBillion(monthTotal)}`;
+
+        // 최대값 (heatmap 정규화용)
+        const monthVals = Object.entries(calData)
+          .filter(([k]) => k.startsWith(monthPrefix))
+          .map(([, v]) => v.total);
+        const maxVal = monthVals.length ? Math.max(...monthVals) : 1;
+
+        const grid = document.getElementById("cal-grid");
+        grid.innerHTML = "";
+
+        // 요일 헤더
+        ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach((d) => {
+          const el = document.createElement("div");
+          el.className = "cal-dow";
+          el.textContent = d;
+          grid.appendChild(el);
+        });
+
+        // 1일 시작 요일 (0=일)
+        const firstDow = new Date(y, m, 1).getDay();
+        const daysInMonth = new Date(y, m + 1, 0).getDate();
+        const today = new Date();
+
+        // 빈 셀
+        for (let i = 0; i < firstDow; i++) {
+          const el = document.createElement("div");
+          el.className = "cal-cell empty";
+          grid.appendChild(el);
+        }
+
+        // 날짜 셀
+        for (let d = 1; d <= daysInMonth; d++) {
+          const key = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          const dayData = calData[key];
+          const isToday =
+            today.getFullYear() === y &&
+            today.getMonth() === m &&
+            today.getDate() === d;
+
+          const cell = document.createElement("div");
+          cell.className =
+            "cal-cell" +
+            (dayData ? " has-data" : "") +
+            (isToday ? " today" : "");
+
+          if (dayData) {
+            const intensity = dayData.total / maxVal;
+            cell.style.setProperty("--intensity", intensity.toFixed(3));
+          }
+
+          // 날짜 숫자
+          const dayNum = document.createElement("div");
+          dayNum.className = "cal-day-num";
+          dayNum.textContent = d;
+          cell.appendChild(dayNum);
+
+          if (dayData) {
+            const bars = document.createElement("div");
+            bars.className = "cal-bars";
+
+            TYPE_ORDER.forEach((type) => {
+              if (!dayData[type]) return;
+              const row = document.createElement("div");
+              row.className = "cal-bar-row";
+              row.innerHTML = `
+          <div class="cal-bar-dot" style="background:${TYPE_COLOR[type]}"></div>
+          <span class="cal-bar-label">${type}</span>
+          <span class="cal-bar-val">${fmtBillion(dayData[type])}</span>
+        `;
+              bars.appendChild(row);
+            });
+
+            // 합계
+            const totalRow = document.createElement("div");
+            totalRow.className = "cal-total-row";
+            totalRow.innerHTML = `
+        <span class="cal-total-label">합계</span>
+        <span class="cal-total-val">${fmtBillion(dayData.total)}</span>
+      `;
+            bars.appendChild(totalRow);
+            cell.appendChild(bars);
+
+            // 클릭 → 팝업
+            cell.addEventListener("click", () => openPopup(key, dayData));
+          }
+
+          grid.appendChild(cell);
+        }
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // POPUP
+      // ════════════════════════════════════════════════════════════════
+      function openPopup(dateKey, dayData) {
+        const [y, mo, d] = dateKey.split("-");
+        const dt = new Date(+y, +mo - 1, +d);
+        const dateStr = dt.toLocaleDateString("ko-KR", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          weekday: "short",
+        });
+
+        document.getElementById("popup-date-label").textContent = "Issue Date";
+        document.getElementById("popup-total-label").textContent = dateStr;
+
+        const rowsEl = document.getElementById("popup-rows");
+        rowsEl.innerHTML = "";
+
+        TYPE_ORDER.forEach((type) => {
+          if (!dayData[type]) return;
+          const items = dayData.items.filter((r) => r.type === type);
+          const color = TYPE_COLOR[type];
+
+          // ── 타입 헤더 행 (합산 금액)
+          const typeRow = document.createElement("div");
+          typeRow.className = "cal-popup-row";
+          typeRow.innerHTML = `
+      <div class="cal-popup-type">
+        <div class="cal-popup-type-dot" style="background:${color}"></div>
+        ${type}
+      </div>
+      <div class="cal-popup-amount">${fmtB3(dayData[type])}</div>
+    `;
+          rowsEl.appendChild(typeRow);
+
+          // ── 만기별 개별 행
+          items.forEach((item) => {
+            const termRow = document.createElement("div");
+            termRow.className = "cal-popup-term-row";
+            termRow.innerHTML = `
+        <div class="cal-popup-term-label">
+          <div class="cal-popup-term-bar" style="background:${color}"></div>
+          ${item.term}
+        </div>
+        <div class="cal-popup-term-amt">${fmtB3(item.total_accepted)}</div>
+      `;
+            rowsEl.appendChild(termRow);
+          });
+        });
+
+        document.getElementById("popup-grand-total").textContent = fmtB3(
+          dayData.total,
+        );
+        document.getElementById("cal-popup-overlay").classList.add("open");
+      }
+
+      function closePopup() {
+        document.getElementById("cal-popup-overlay").classList.remove("open");
+      }
     </script>
   </body>
 </html>
