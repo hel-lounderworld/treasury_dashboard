@@ -5,236 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="author" content="hel.lounderworld & Claude.ai" />
     <title>US Treasury Auction Dashboard</title>
-    <script
-      src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"
-    >
-      // ════════════════════════════════════════════════════════════════
-      // TAB SWITCHING
-      // ════════════════════════════════════════════════════════════════
-      let activeTab = 'auction';
-
-      function switchTab(tabId) {
-        activeTab = tabId;
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + tabId));
-        if (tabId === 'calendar') renderCalendar();
-      }
-
-      // ════════════════════════════════════════════════════════════════
-      // CALENDAR STATE & HELPERS
-      // ════════════════════════════════════════════════════════════════
-      let calYear  = new Date().getFullYear();
-      let calMonth = new Date().getMonth(); // 0-based
-
-      const TYPE_COLOR = { Bill: '#00d4f5', Note: '#a78bfa', Bond: '#f5a623' };
-      const TYPE_ORDER = ['Bill', 'Note', 'Bond'];
-
-      // 달력 셀: 짧게 표시 (1자리)
-      function fmtBillion(v) {
-        if (!v || v <= 0) return '—';
-        if (v >= 1e12) return (v / 1e12).toFixed(2) + 'T';
-        if (v >= 1e9)  return (v / 1e9).toFixed(1) + 'B';
-        if (v >= 1e6)  return (v / 1e6).toFixed(0) + 'M';
-        return v.toFixed(0);
-      }
-
-      // 팝업: 항상 소수점 3자리 B 고정
-      function fmtB3(v) {
-        if (!v || v <= 0) return '—';
-        return (v / 1e9).toFixed(3) + 'B';
-      }
-
-      // MM/DD/YYYY → Date
-      function parseIssueDate(s) {
-        if (!s) return null;
-        const p = s.split('/');
-        if (p.length < 3) return null;
-        return new Date(+p[2], +p[0] - 1, +p[1]);
-      }
-
-      // 전체 데이터를 Issue Date × Security Type 으로 집계
-      function buildCalData() {
-        // dayKey: 'YYYY-MM-DD' → { Bill, Note, Bond, total, items[] }
-        const map = {};
-        RAW_DATA.forEach(row => {
-          const dt = parseIssueDate(row.issue_date);
-          if (!dt || !row.total_accepted || row.total_accepted <= 0) return;
-          const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-          if (!map[key]) map[key] = { Bill: 0, Note: 0, Bond: 0, total: 0, items: [] };
-          const t = row.type || 'Bill';
-          map[key][t] = (map[key][t] || 0) + row.total_accepted;
-          map[key].total += row.total_accepted;
-          map[key].items.push(row);
-        });
-        return map;
-      }
-
-      // ════════════════════════════════════════════════════════════════
-      // CALENDAR RENDER
-      // ════════════════════════════════════════════════════════════════
-      function renderCalendar() {
-        const calData = buildCalData();
-
-        // 해당 월에 데이터 있는지 확인, 없으면 데이터 있는 달로 이동
-        const monthKeys = Object.keys(calData).map(k => k.slice(0,7)).filter((v,i,a)=>a.indexOf(v)===i).sort();
-        if (monthKeys.length > 0) {
-          const targetKey = `${calYear}-${String(calMonth+1).padStart(2,'0')}`;
-          if (!monthKeys.includes(targetKey)) {
-            // 가장 최근 데이터 달로 이동
-            const latest = monthKeys[monthKeys.length - 1];
-            calYear  = +latest.slice(0,4);
-            calMonth = +latest.slice(5,7) - 1;
-          }
-        }
-
-        const y = calYear, m = calMonth;
-        const monthLabel = new Date(y, m, 1).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });
-        document.getElementById('cal-month-label').textContent = monthLabel;
-
-        // 월 총계
-        const monthPrefix = `${y}-${String(m+1).padStart(2,'0')}`;
-        let monthTotal = 0;
-        Object.entries(calData).forEach(([k, v]) => { if (k.startsWith(monthPrefix)) monthTotal += v.total; });
-        document.getElementById('cal-month-total').textContent =
-          `${monthLabel} 결제 총액: ${fmtBillion(monthTotal)}`;
-
-        // 최대값 (heatmap 정규화용)
-        const monthVals = Object.entries(calData).filter(([k]) => k.startsWith(monthPrefix)).map(([,v]) => v.total);
-        const maxVal = monthVals.length ? Math.max(...monthVals) : 1;
-
-        const grid = document.getElementById('cal-grid');
-        grid.innerHTML = '';
-
-        // 요일 헤더
-        ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
-          const el = document.createElement('div');
-          el.className = 'cal-dow';
-          el.textContent = d;
-          grid.appendChild(el);
-        });
-
-        // 1일 시작 요일 (0=일)
-        const firstDow = new Date(y, m, 1).getDay();
-        const daysInMonth = new Date(y, m + 1, 0).getDate();
-        const today = new Date();
-
-        // 빈 셀
-        for (let i = 0; i < firstDow; i++) {
-          const el = document.createElement('div');
-          el.className = 'cal-cell empty';
-          grid.appendChild(el);
-        }
-
-        // 날짜 셀
-        for (let d = 1; d <= daysInMonth; d++) {
-          const key = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-          const dayData = calData[key];
-          const isToday = (today.getFullYear()===y && today.getMonth()===m && today.getDate()===d);
-
-          const cell = document.createElement('div');
-          cell.className = 'cal-cell' +
-            (dayData ? ' has-data' : '') +
-            (isToday ? ' today' : '');
-
-          if (dayData) {
-            const intensity = dayData.total / maxVal;
-            cell.style.setProperty('--intensity', intensity.toFixed(3));
-          }
-
-          // 날짜 숫자
-          const dayNum = document.createElement('div');
-          dayNum.className = 'cal-day-num';
-          dayNum.textContent = d;
-          cell.appendChild(dayNum);
-
-          if (dayData) {
-            const bars = document.createElement('div');
-            bars.className = 'cal-bars';
-
-            TYPE_ORDER.forEach(type => {
-              if (!dayData[type]) return;
-              const row = document.createElement('div');
-              row.className = 'cal-bar-row';
-              row.innerHTML = `
-                <div class="cal-bar-dot" style="background:${TYPE_COLOR[type]}"></div>
-                <span class="cal-bar-label">${type}</span>
-                <span class="cal-bar-val">${fmtBillion(dayData[type])}</span>
-              `;
-              bars.appendChild(row);
-            });
-
-            // 합계
-            const totalRow = document.createElement('div');
-            totalRow.className = 'cal-total-row';
-            totalRow.innerHTML = `
-              <span class="cal-total-label">합계</span>
-              <span class="cal-total-val">${fmtBillion(dayData.total)}</span>
-            `;
-            bars.appendChild(totalRow);
-            cell.appendChild(bars);
-
-            // 클릭 → 팝업
-            cell.addEventListener('click', () => openPopup(key, dayData));
-          }
-
-          grid.appendChild(cell);
-        }
-      }
-
-      // ════════════════════════════════════════════════════════════════
-      // POPUP
-      // ════════════════════════════════════════════════════════════════
-      function openPopup(dateKey, dayData) {
-        const [y, mo, d] = dateKey.split('-');
-        const dt = new Date(+y, +mo-1, +d);
-        const dateStr = dt.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
-
-        document.getElementById('popup-date-label').textContent = 'Issue Date';
-        document.getElementById('popup-total-label').textContent = dateStr;
-
-        const rowsEl = document.getElementById('popup-rows');
-        rowsEl.innerHTML = '';
-
-        TYPE_ORDER.forEach(type => {
-          if (!dayData[type]) return;
-          const items = dayData.items.filter(r => r.type === type);
-          const color = TYPE_COLOR[type];
-
-          // ── 타입 헤더 행 (합산 금액)
-          const typeRow = document.createElement('div');
-          typeRow.className = 'cal-popup-row';
-          typeRow.innerHTML = `
-            <div class="cal-popup-type">
-              <div class="cal-popup-type-dot" style="background:${color}"></div>
-              ${type}
-            </div>
-            <div class="cal-popup-amount">${fmtB3(dayData[type])}</div>
-          `;
-          rowsEl.appendChild(typeRow);
-
-          // ── 만기별 개별 행
-          items.forEach(item => {
-            const termRow = document.createElement('div');
-            termRow.className = 'cal-popup-term-row';
-            termRow.innerHTML = `
-              <div class="cal-popup-term-label">
-                <div class="cal-popup-term-bar" style="background:${color}"></div>
-                ${item.term}
-              </div>
-              <div class="cal-popup-term-amt">${fmtB3(item.total_accepted)}</div>
-            `;
-            rowsEl.appendChild(termRow);
-          });
-        });
-
-        document.getElementById('popup-grand-total').textContent = fmtB3(dayData.total);
-        document.getElementById('cal-popup-overlay').classList.add('open');
-      }
-
-      function closePopup() {
-        document.getElementById('cal-popup-overlay').classList.remove('open');
-      }
-    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;600;700;800&display=swap");
 
@@ -298,7 +69,8 @@
         align-items: center;
         justify-content: center;
         min-height: 100vh;
-        padding: 40px 20px;
+        padding: 40px 20px 52px;
+        position: relative;
         background: radial-gradient(
           ellipse 80% 60% at 50% 40%,
           rgba(0, 212, 245, 0.07) 0%,
@@ -403,7 +175,7 @@
       /* ── DASHBOARD ─────────────────────────────── */
       #dashboard {
         display: none;
-        padding: 24px;
+        padding: 24px 24px 52px;
         max-width: 1600px;
         margin: 0 auto;
       }
@@ -508,6 +280,22 @@
       .term-btn:hover:not(.active) {
         border-color: var(--muted);
         color: var(--text);
+      }
+
+      /* 주요 벤치마크 만기 강조 */
+      .term-btn.highlight {
+        border-color: var(--gold);
+        color: var(--gold);
+      }
+      .term-btn.highlight:hover:not(.active) {
+        border-color: var(--gold);
+        color: var(--gold);
+        background: rgba(245, 166, 35, 0.08);
+      }
+      .term-btn.highlight.active {
+        background: rgba(245, 166, 35, 0.15);
+        border-color: var(--gold);
+        color: var(--gold);
       }
 
       /* ── KPI CARDS ─────────────────────────────── */
@@ -1196,6 +984,172 @@
           padding: 5px;
         }
       }
+
+      /* ── TGA SECTION ────────────────────────────── */
+      .tga-section {
+        margin-top: 28px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 22px 20px 18px;
+      }
+
+      .tga-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .tga-title-block {
+      }
+      .tga-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--text);
+        margin-bottom: 3px;
+      }
+      .tga-desc {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .tga-controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .tga-range-btns {
+        display: flex;
+        gap: 4px;
+      }
+
+      .tga-range-btn {
+        padding: 5px 12px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+      }
+
+      .tga-range-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .tga-range-btn.active {
+        background: rgba(0, 212, 245, 0.12);
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .tga-custom-range {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .tga-date-input {
+        background: var(--panel2, #141d2e);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--text);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        padding: 4px 8px;
+        cursor: pointer;
+        transition: border-color 0.2s;
+        width: 110px;
+      }
+
+      .tga-date-input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+
+      .tga-apply-btn {
+        padding: 4px 12px;
+        border-radius: 6px;
+        border: 1px solid var(--accent);
+        background: rgba(0, 212, 245, 0.1);
+        color: var(--accent);
+        font-size: 11px;
+        font-weight: 700;
+        font-family: inherit;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .tga-apply-btn:hover {
+        background: rgba(0, 212, 245, 0.2);
+      }
+
+      .tga-kpi-row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+
+      .tga-kpi {
+        background: var(--panel2, #141d2e);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 16px;
+        min-width: 140px;
+      }
+
+      .tga-kpi-label {
+        font-size: 10px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 4px;
+      }
+      .tga-kpi-val {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .tga-status {
+        text-align: center;
+        padding: 40px 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .tga-spinner {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 2px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin-right: 8px;
+        vertical-align: middle;
+      }
+
+      .tga-error {
+        color: var(--red);
+      }
+
+      .tga-chart-wrap {
+        position: relative;
+        height: 260px;
+      }
     </style>
   </head>
   <body>
@@ -1207,6 +1161,34 @@
 
     <!-- ══ UPLOAD SCREEN ══════════════════════════════════════════ -->
     <div id="upload-screen">
+      <!-- 업로드 화면 우상단 테마 토글 -->
+      <div
+        style="
+          position: absolute;
+          top: 20px;
+          right: 24px;
+          z-index: 10;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        "
+      >
+        <span
+          class="theme-toggle-label"
+          id="theme-label-upload"
+          style="font-size: 11px; color: var(--muted)"
+          >🌙 Dark</span
+        >
+        <div
+          class="toggle-track"
+          id="theme-track-upload"
+          role="switch"
+          aria-checked="false"
+          tabindex="0"
+        >
+          <div class="toggle-thumb">🌙</div>
+        </div>
+      </div>
       <div class="upload-badge">◈ Macro Intelligence</div>
       <h1 class="upload-title">US Treasury Auction<br />Dashboard</h1>
       <p class="upload-sub">
@@ -1425,7 +1407,6 @@
                   <span style="color: #fb7185">●</span> <b>SOMA ↑</b> — 연준의
                   공개시장조작 계정 낙찰. QE/QT 사이클 반영
                 </div>
-                <div class="guide-item">@hel.lounderworld x Claude.ai</div>
               </div>
             </div>
             <div class="guide-source" id="guide-source">
@@ -1463,6 +1444,73 @@
         </div>
 
         <div class="cal-grid" id="cal-grid"></div>
+
+        <!-- TGA 잔고 차트 섹션 -->
+        <div class="tga-section" id="tga-section">
+          <div class="tga-header">
+            <div class="tga-title-block">
+              <div class="tga-title">
+                💰 Treasury General Account (TGA) Closing Balance
+              </div>
+              <div class="tga-desc">
+                연준 내 미 재무부 현금 잔고 · 출처: fiscaldata.treasury.gov
+              </div>
+            </div>
+            <div class="tga-controls">
+              <div class="tga-range-btns">
+                <button class="tga-range-btn active" data-days="30">
+                  1개월
+                </button>
+                <button class="tga-range-btn" data-days="90">3개월</button>
+                <button class="tga-range-btn" data-days="180">6개월</button>
+                <button class="tga-range-btn" data-days="365">1년</button>
+              </div>
+              <div class="tga-custom-range">
+                <span>직접입력</span>
+                <input type="date" class="tga-date-input" id="tga-from" />
+                <span>~</span>
+                <input type="date" class="tga-date-input" id="tga-to" />
+                <button class="tga-apply-btn" id="tga-apply">조회</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="tga-kpi-row">
+            <div class="tga-kpi">
+              <div class="tga-kpi-label">최신 잔고</div>
+              <div
+                class="tga-kpi-val"
+                id="tga-latest"
+                style="color: var(--accent)"
+              >
+                —
+              </div>
+            </div>
+            <div class="tga-kpi">
+              <div class="tga-kpi-label">기간 최고</div>
+              <div class="tga-kpi-val" id="tga-max" style="color: var(--green)">
+                —
+              </div>
+            </div>
+            <div class="tga-kpi">
+              <div class="tga-kpi-label">기간 최저</div>
+              <div class="tga-kpi-val" id="tga-min" style="color: var(--red)">
+                —
+              </div>
+            </div>
+            <div class="tga-kpi">
+              <div class="tga-kpi-label">기간 변화</div>
+              <div class="tga-kpi-val" id="tga-change">—</div>
+            </div>
+          </div>
+
+          <div id="tga-status" class="tga-status">
+            달력 탭을 열면 자동으로 TGA 데이터를 불러옵니다.
+          </div>
+          <div class="tga-chart-wrap" id="tga-chart-wrap" style="display: none">
+            <canvas id="chart-tga"></canvas>
+          </div>
+        </div>
       </div>
       <!-- /tab-calendar -->
 
@@ -2147,12 +2195,23 @@
       // ════════════════════════════════════════════════════════════════
       // TERM FILTER BUILD
       // ════════════════════════════════════════════════════════════════
+      const HIGHLIGHT_TERMS = new Set([
+        "4-Week",
+        "2-Year",
+        "10-Year",
+        "30-Year",
+      ]);
+
       function buildTermFilter() {
         const container = document.getElementById("term-filter");
         container.innerHTML = "";
         allTerms.forEach((term) => {
           const btn = document.createElement("button");
-          btn.className = "term-btn" + (term === selectedTerm ? " active" : "");
+          const isHL = HIGHLIGHT_TERMS.has(term);
+          btn.className =
+            "term-btn" +
+            (term === selectedTerm ? " active" : "") +
+            (isHL ? " highlight" : "");
           btn.textContent = term;
           btn.onclick = () => {
             selectedTerm = term;
@@ -2184,38 +2243,23 @@
             RAW_DATA = parseCSV(e.target.result);
             if (!RAW_DATA.length) throw new Error("데이터가 없습니다.");
 
+            // 만기 텍스트 → 일수로 변환해서 오름차순 정렬
+            // "4-Week", "2-Day", "9-Year 10-Month", "19-Year 11-Month" 등 모두 처리
+            const termToDays = (t) => {
+              let days = 0;
+              // "X-Year Y-Month", "X-Year", "X-Month", "X-Week", "X-Day" 형태 파싱
+              const yMatch = t.match(/(\d+)-Year/);
+              const mMatch = t.match(/(\d+)-Month/);
+              const wMatch = t.match(/(\d+)-Week/);
+              const dMatch = t.match(/(\d+)-Day/);
+              if (yMatch) days += +yMatch[1] * 365;
+              if (mMatch) days += +mMatch[1] * 30;
+              if (wMatch) days += +wMatch[1] * 7;
+              if (dMatch) days += +dMatch[1];
+              return days;
+            };
             allTerms = [...new Set(RAW_DATA.map((d) => d.term))].sort(
-              (a, b) => {
-                const order = [
-                  "4-Week",
-                  "6-Week",
-                  "8-Week",
-                  "13-Week",
-                  "17-Week",
-                  "26-Week",
-                  "52-Week",
-                  "1-Year 11-Month",
-                  "2-Year",
-                  "3-Year",
-                  "5-Year",
-                  "7-Year",
-                  "9-Year 10-Month",
-                  "9-Year 11-Month",
-                  "10-Year",
-                  "19-Year 10-Month",
-                  "19-Year 11-Month",
-                  "20-Year",
-                  "29-Year 10-Month",
-                  "29-Year 11-Month",
-                  "30-Year",
-                ];
-                const ia = order.indexOf(a),
-                  ib = order.indexOf(b);
-                if (ia === -1 && ib === -1) return a.localeCompare(b);
-                if (ia === -1) return 1;
-                if (ib === -1) return -1;
-                return ia - ib;
-              },
+              (a, b) => termToDays(a) - termToDays(b),
             );
 
             // Pick term with most data as default
@@ -2283,6 +2327,18 @@
           if (e.dataTransfer.files[0]) loadCSV(e.dataTransfer.files[0]);
         });
 
+        // 업로드 화면 토글
+        const uploadTrackEl = document.getElementById("theme-track-upload");
+        if (uploadTrackEl) {
+          uploadTrackEl.addEventListener("click", () => applyTheme(!isDark));
+          uploadTrackEl.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              applyTheme(!isDark);
+            }
+          });
+        }
+
         // 탭 전환
         document.querySelectorAll(".tab-btn").forEach((btn) => {
           btn.addEventListener("click", () => switchTab(btn.dataset.tab));
@@ -2300,9 +2356,21 @@
             "data-theme",
             dark ? "dark" : "light",
           );
+          // 탭바 토글
           themeTrack.classList.toggle("light-on", !dark);
           themeThumb.textContent = dark ? "🌙" : "☀️";
           themeLabel.textContent = dark ? "🌙 Dark" : "☀️ Light";
+          // 업로드 화면 토글 동기화
+          const uploadTrack = document.getElementById("theme-track-upload");
+          const uploadLabel = document.getElementById("theme-label-upload");
+          if (uploadTrack) {
+            uploadTrack.classList.toggle("light-on", !dark);
+            uploadTrack.querySelector(".toggle-thumb").textContent = dark
+              ? "🌙"
+              : "☀️";
+          }
+          if (uploadLabel)
+            uploadLabel.textContent = dark ? "🌙 Dark" : "☀️ Light";
           // Chart.js 글로벌 색상 업데이트
           const gridColor = dark ? "#1a2840" : "#e2e8f0";
           const mutedColor = dark ? "#546a8a" : "#64748b";
@@ -2341,6 +2409,34 @@
           renderCalendar();
         });
 
+        // TGA 범위 버튼
+        document.querySelectorAll(".tga-range-btn").forEach((btn) => {
+          btn.addEventListener("click", () => tgaLoadRange(+btn.dataset.days));
+        });
+
+        // TGA 직접입력 apply
+        document.getElementById("tga-apply").addEventListener("click", () => {
+          const from = document.getElementById("tga-from").value;
+          const to = document.getElementById("tga-to").value;
+          if (!from || !to) return;
+          // 프리셋 버튼 비활성화
+          document
+            .querySelectorAll(".tga-range-btn")
+            .forEach((b) => b.classList.remove("active"));
+          fetchTGA(from, to);
+        });
+
+        // date input 기본값 세팅 (오늘 ~ 1개월 전)
+        const _today = new Date();
+        const _from = new Date();
+        _from.setDate(_today.getDate() - 30);
+        document.getElementById("tga-to").value = _today
+          .toISOString()
+          .slice(0, 10);
+        document.getElementById("tga-from").value = _from
+          .toISOString()
+          .slice(0, 10);
+
         // 팝업 닫기
         document
           .getElementById("cal-popup-close")
@@ -2378,7 +2474,13 @@
           .forEach((c) =>
             c.classList.toggle("active", c.id === "tab-" + tabId),
           );
-        if (tabId === "calendar") renderCalendar();
+        if (tabId === "calendar") {
+          renderCalendar();
+          if (!tgaFetched) {
+            tgaFetched = true;
+            tgaLoadRange(30);
+          }
+        }
       }
 
       // ════════════════════════════════════════════════════════════════
@@ -2618,6 +2720,317 @@
       function closePopup() {
         document.getElementById("cal-popup-overlay").classList.remove("open");
       }
+
+      // ════════════════════════════════════════════════════════════════
+      // TGA BALANCE — Treasury Fiscal Data API
+      // ════════════════════════════════════════════════════════════════
+      let tgaActiveDays = 30;
+      let tgaCustomFrom = "";
+      let tgaCustomTo = "";
+      let tgaChart = null;
+      let tgaFetched = false; // 탭 첫 진입 시 1회만 자동 조회
+
+      function tgaDateRange(days) {
+        const to = new Date();
+        const from = new Date();
+        from.setDate(from.getDate() - days);
+        return {
+          from: from.toISOString().slice(0, 10),
+          to: to.toISOString().slice(0, 10),
+        };
+      }
+
+      function fmtTGA(millionDollars) {
+        // API 값은 백만 달러 단위
+        const b = millionDollars / 1000;
+        return b.toFixed(3) + "B";
+      }
+
+      function fmtTGAKpi(millionDollars) {
+        const b = millionDollars / 1000;
+        if (b >= 1000) return (b / 1000).toFixed(2) + "T";
+        return b.toFixed(1) + "B";
+      }
+
+      async function fetchTGA(fromDate, toDate) {
+        const statusEl = document.getElementById("tga-status");
+        const chartWrapEl = document.getElementById("tga-chart-wrap");
+
+        statusEl.innerHTML =
+          '<span class="tga-spinner"></span> TGA 데이터 불러오는 중...';
+        statusEl.style.display = "block";
+        chartWrapEl.style.display = "none";
+
+        // ① 기간 필터로 전체 조회 (account_type 필터 없이)
+        // ② 받은 데이터에서 account_type === "Treasury General Account (TGA) Closing Balance" 추려
+        // ③ open_today_bal 값으로 그래프
+        const BASE =
+          "https://api.fiscaldata.treasury.gov/services/api/fiscal_service";
+        const url =
+          BASE +
+          "/v1/accounting/dts/operating_cash_balance" +
+          `?filter=record_date:gte:${fromDate},record_date:lte:${toDate}` +
+          "&sort=record_date&page[size]=500";
+
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          const rows = json.data || [];
+
+          if (!rows.length) {
+            statusEl.innerHTML = "선택한 기간에 데이터가 없습니다.";
+            return;
+          }
+
+          // TGA Closing Balance 행만 추리기
+          const TGA_TYPE = "Treasury General Account (TGA) Closing Balance";
+          const tgaRows = rows.filter((r) => r.account_type === TGA_TYPE);
+
+          if (!tgaRows.length) {
+            statusEl.innerHTML =
+              '<span class="tga-error">TGA Closing Balance 항목을 찾지 못했습니다.</span>';
+            return;
+          }
+
+          // open_today_bal: API는 문자열로 반환 ("929668" 같은 형태, 단위: 백만 달러)
+          const parseSafe = (s) => {
+            if (!s || s === "null" || s === "") return null;
+            const n = parseFloat(s.replace(/,/g, ""));
+            return isNaN(n) ? null : n;
+          };
+
+          const parsed = tgaRows
+            .map((r) => ({
+              date: r.record_date,
+              val: parseSafe(r.open_today_bal),
+            }))
+            .filter((r) => r.val !== null);
+
+          if (!parsed.length) {
+            statusEl.innerHTML =
+              '<span class="tga-error">유효한 잔고 데이터가 없습니다.</span>';
+            return;
+          }
+
+          renderTGA(parsed);
+        } catch (err) {
+          statusEl.innerHTML = `<span class="tga-error">⚠ 오류: ${err.message}</span>`;
+        }
+      }
+
+      function renderTGA(data) {
+        const statusEl = document.getElementById("tga-status");
+        const chartWrapEl = document.getElementById("tga-chart-wrap");
+
+        statusEl.style.display = "none";
+        chartWrapEl.style.display = "block";
+
+        const vals = data.map((d) => d.val);
+
+        // ── KPI ──
+        const latest = vals[vals.length - 1];
+        const maxVal = Math.max(...vals);
+        const minVal = Math.min(...vals);
+        const change = latest - vals[0];
+
+        document.getElementById("tga-latest").textContent = fmtTGAKpi(latest);
+        document.getElementById("tga-max").textContent = fmtTGAKpi(maxVal);
+        document.getElementById("tga-min").textContent = fmtTGAKpi(minVal);
+        const changeEl = document.getElementById("tga-change");
+        changeEl.textContent = (change >= 0 ? "+" : "") + fmtTGAKpi(change);
+        changeEl.style.color = change >= 0 ? "var(--green)" : "var(--red)";
+
+        // ── CSS 변수를 getComputedStyle로 실제 값 읽기 (Chart.js는 var() 직접 해석 불가) ──
+        const rs = getComputedStyle(document.documentElement);
+        const cAccent = rs.getPropertyValue("--accent").trim() || "#00d4f5";
+        const cMuted = rs.getPropertyValue("--muted").trim() || "#546a8a";
+        const cText = rs.getPropertyValue("--text").trim() || "#dde4f0";
+        const cBorder = rs.getPropertyValue("--border").trim() || "#1a2840";
+        const cGreen = rs.getPropertyValue("--green").trim() || "#1de9b6";
+        const cRed = rs.getPropertyValue("--red").trim() || "#ff3d6e";
+        const isLight =
+          document.documentElement.getAttribute("data-theme") === "light";
+        const cBg = isLight ? "#ffffff" : "#0b1120";
+        const gridCol = isLight
+          ? "rgba(203,213,225,0.7)"
+          : "rgba(26,40,64,0.8)";
+
+        // ── 그라데이션 ──
+        const canvas = document.getElementById("chart-tga");
+        const ctx = canvas.getContext("2d");
+        const grad = ctx.createLinearGradient(0, 0, 0, 260);
+        grad.addColorStop(
+          0,
+          isLight ? "rgba(2,132,199,0.22)" : "rgba(0,212,245,0.32)",
+        );
+        grad.addColorStop(
+          1,
+          isLight ? "rgba(2,132,199,0.01)" : "rgba(0,212,245,0.01)",
+        );
+
+        if (tgaChart) {
+          tgaChart.destroy();
+          tgaChart = null;
+        }
+
+        // ── x축 레이블: 연도 바뀌는 지점에 'YY 표시 ──
+        const xLabels = data.map((d, i) => {
+          const yy = d.date.slice(2, 4);
+          const mmdd = d.date.slice(5); // MM-DD
+          if (i === 0) return "'" + yy + " " + mmdd;
+          return data[i - 1].date.slice(2, 4) !== yy
+            ? "'" + yy + " " + mmdd
+            : mmdd;
+        });
+
+        tgaChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: xLabels,
+            datasets: [
+              {
+                label: "TGA",
+                data: vals,
+                borderColor: cAccent,
+                backgroundColor: grad,
+                borderWidth: 2,
+                fill: true,
+                tension: 0.3,
+                pointRadius: data.length > 60 ? 0 : 3,
+                pointHoverRadius: 5,
+                pointBackgroundColor: cAccent,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: cBg,
+                borderColor: cBorder,
+                borderWidth: 1,
+                titleColor: cMuted,
+                bodyColor: cText,
+                padding: 12,
+                callbacks: {
+                  // 제목: YY-MM-DD
+                  title: (items) => {
+                    const d = data[items[0].dataIndex];
+                    return d ? d.date.slice(2) : "";
+                  },
+                  // 1번째 줄: 잔고
+                  label: (item) => {
+                    return " $" + fmtTGA(item.parsed.y);
+                  },
+                  // 2번째 줄: 전일 대비 증감 (줄바꿈 + 색상)
+                  afterLabel: (item) => {
+                    const i = item.dataIndex;
+                    const prev = i > 0 ? vals[i - 1] : null;
+                    if (prev === null) return "";
+                    const diff = item.parsed.y - prev;
+                    const arrow = diff >= 0 ? "▲" : "▼";
+                    return " " + arrow + " $" + fmtTGA(Math.abs(diff));
+                  },
+                  // 증감 줄 색상: 증가=빨강, 감소=초록 (미국 주식 컨벤션)
+                  afterLabelColor: (item) => {
+                    const i = item.dataIndex;
+                    const prev = i > 0 ? vals[i - 1] : null;
+                    if (prev === null) return {};
+                    const diff = item.parsed.y - prev;
+                    const col = diff >= 0 ? cRed : cGreen;
+                    return { borderColor: col, backgroundColor: col };
+                  },
+                },
+              },
+            },
+            scales: {
+              x: {
+                grid: { color: gridCol },
+                ticks: {
+                  color: cMuted,
+                  font: { size: 10 },
+                  maxTicksLimit: 10,
+                  maxRotation: 30,
+                },
+              },
+              y: {
+                grid: { color: gridCol },
+                ticks: {
+                  color: cMuted,
+                  font: { size: 10 },
+                  callback: (v) => "$" + (v / 1000).toFixed(0) + "B",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function tgaLoadRange(days) {
+        tgaActiveDays = days;
+        tgaCustomFrom = "";
+        tgaCustomTo = "";
+        document
+          .querySelectorAll(".tga-range-btn")
+          .forEach((b) =>
+            b.classList.toggle("active", +b.dataset.days === days),
+          );
+        const { from, to } = tgaDateRange(days);
+        // date input 동기화
+        document.getElementById("tga-from").value = from;
+        document.getElementById("tga-to").value = to;
+        fetchTGA(from, to);
+      }
     </script>
+    <!-- ── Fixed copyright footer ── -->
+    <footer
+      style="
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--panel);
+        border-top: 1px solid var(--border);
+        font-size: 11px;
+        color: var(--muted);
+        z-index: 50;
+        letter-spacing: 0.01em;
+      "
+    >
+      © Built with
+      <a
+        href="https://www.threads.com/@hel.lounderworld"
+        target="_blank"
+        style="color: var(--mute); text-decoration: none; margin: 0 4px"
+        >hel.lounderworld</a
+      >
+      &&nbsp;
+      <a
+        href="https://claude.ai"
+        target="_blank"
+        style="
+          color: var(--accent);
+          text-decoration: none;
+          font-weight: 700;
+          margin: 0 4px;
+        "
+        >Claude.ai</a
+      >
+      &nbsp;·&nbsp; Data: US Treasury /
+      <a
+        href="https://fiscaldata.treasury.gov"
+        target="_blank"
+        style="color: var(--accent); text-decoration: none; margin-left: 4px"
+        >fiscaldata.treasury.gov</a
+      >
+    </footer>
   </body>
 </html>
