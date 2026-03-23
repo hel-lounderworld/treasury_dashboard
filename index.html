@@ -1520,6 +1520,57 @@
         font-size: 9px;
         font-weight: 700;
       }
+
+      /* ── UPCOMING AUCTION BADGE ─────────────────── */
+      .cal-day-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 2px;
+      }
+
+      .cal-auction-badge {
+        font-size: 11px;
+        line-height: 1;
+        cursor: default;
+        flex-shrink: 0;
+        position: relative;
+      }
+
+      .cal-auction-badge .cal-auction-tip {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: 16px;
+        background: var(--panel2, #141d2e);
+        border: 1px solid var(--accent);
+        border-radius: 6px;
+        padding: 5px 8px;
+        font-size: 10px;
+        color: var(--text);
+        white-space: nowrap;
+        z-index: 10;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        min-width: 120px;
+      }
+
+      .cal-auction-badge:hover .cal-auction-tip {
+        display: block;
+      }
+
+      .cal-auction-tip-row {
+        color: var(--muted);
+        margin-bottom: 2px;
+        font-size: 10px;
+      }
+
+      .cal-auction-tip-row:last-child {
+        margin-bottom: 0;
+      }
+      .cal-auction-tip-row span {
+        color: var(--accent);
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
@@ -1585,7 +1636,20 @@
       </div>
 
       <div class="upload-hint" style="text-align: center; margin-top: 16px">
-        출처: <strong>fiscaldata.treasury.gov</strong> · 경매일 기준 조회<br />
+        출처:
+        <strong
+          ><a
+            href="https://fiscaldata.treasury.gov"
+            target="_blank"
+            style="
+              color: var(--accent);
+              text-decoration: none;
+              margin-left: 4px;
+            "
+            >fiscaldata.treasury.gov</a
+          ></strong
+        >
+        · 경매일 기준 조회<br />
         기간이 길수록 여러 페이지를 순차 호출합니다 (최대 2년 권장)
       </div>
 
@@ -2960,6 +3024,10 @@
             tgaFetched = true;
             tgaLoadRange(30);
           }
+          if (!upcomingFetched) {
+            upcomingFetched = true;
+            fetchUpcomingAuctions();
+          }
         }
         if (tabId === "buyback") {
           if (!bbFetched) {
@@ -2992,6 +3060,8 @@
         RAW_DATA = [];
         tgaFetched = false;
         bbFetched = false;
+        upcomingFetched = false;
+        UPCOMING_DATA = {};
         BB_DATA = [];
         Object.values(bbCharts).forEach((c) => {
           try {
@@ -3012,6 +3082,9 @@
       // ════════════════════════════════════════════════════════════════
       // CALENDAR STATE & HELPERS
       // ════════════════════════════════════════════════════════════════
+      let UPCOMING_DATA = {}; // { 'YYYY-MM-DD': [{securityTerm, securityType}, ...] }
+      let upcomingFetched = false;
+
       let calYear = new Date().getFullYear();
       let calMonth = new Date().getMonth(); // 0-based
 
@@ -3156,11 +3229,42 @@
             cell.style.setProperty("--intensity", intensity.toFixed(3));
           }
 
-          // 날짜 숫자
+          // 날짜 헤더 (숫자 + 경매 예정 아이콘)
+          const dayHeader = document.createElement("div");
+          dayHeader.className = "cal-day-header";
+
           const dayNum = document.createElement("div");
           dayNum.className = "cal-day-num";
           dayNum.textContent = d;
-          cell.appendChild(dayNum);
+          dayHeader.appendChild(dayNum);
+
+          // 오늘 이후 경매 예정일이면 🔔 아이콘 표시
+          const upcomingList = UPCOMING_DATA[key];
+          const isFuture =
+            new Date(key) >=
+            new Date(today.getFullYear(), today.getMonth(), today.getDate());
+          if (upcomingList && upcomingList.length > 0 && isFuture) {
+            const badge = document.createElement("div");
+            badge.className = "cal-auction-badge";
+            badge.innerHTML = "🔔";
+
+            // 툴팁: 경매 예정 목록
+            const tip = document.createElement("div");
+            tip.className = "cal-auction-tip";
+            tip.innerHTML =
+              '<div style="color:var(--accent);font-weight:700;margin-bottom:4px;">경매 예정</div>' +
+              upcomingList
+                .map(
+                  (u) =>
+                    `<div class="cal-auction-tip-row"><span>${u.term}</span> ${u.type}</div>`,
+                )
+                .join("");
+            badge.appendChild(tip);
+            dayHeader.appendChild(badge);
+            cell.classList.add("has-data");
+          }
+
+          cell.appendChild(dayHeader);
 
           if (dayData) {
             // 바이백 settlement 맵 (BB_DATA가 있을 때만)
@@ -4291,6 +4395,51 @@
           map[key] += parseBBMoney(r.total_par_amt_accepted) || 0;
         });
         return map;
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // UPCOMING AUCTIONS — fiscaldata.treasury.gov
+      // ════════════════════════════════════════════════════════════════
+      async function fetchUpcomingAuctions() {
+        const today = new Date();
+        const todayStr = today.toISOString().slice(0, 10);
+
+        // 오늘 이후 90일치 예정 경매 조회
+        const future = new Date(today);
+        future.setDate(future.getDate() + 90);
+        const futureStr = future.toISOString().slice(0, 10);
+
+        const url =
+          "https://api.fiscaldata.treasury.gov/services/api/fiscal_service" +
+          "/v1/accounting/od/upcoming_auctions" +
+          `?filter=auction_date:gte:${todayStr},auction_date:lte:${futureStr}` +
+          "&fields=auction_date,security_type,security_term" +
+          "&sort=auction_date&page[size]=200";
+
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          const rows = json.data || [];
+
+          // 날짜별로 그룹핑
+          UPCOMING_DATA = {};
+          rows.forEach((r) => {
+            const d = r.auction_date?.slice(0, 10);
+            if (!d) return;
+            if (!UPCOMING_DATA[d]) UPCOMING_DATA[d] = [];
+            UPCOMING_DATA[d].push({
+              term: r.security_term || "—",
+              type: r.security_type || "",
+            });
+          });
+
+          // 달력 재렌더 (아이콘 반영)
+          if (activeTab === "calendar") renderCalendar();
+        } catch (e) {
+          // 조용히 실패 — 경매 아이콘만 없으면 됨
+          console.warn("upcoming auctions fetch failed:", e.message);
+        }
       }
     </script>
     <!-- ── Fixed copyright footer ── -->
