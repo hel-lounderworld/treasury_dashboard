@@ -3247,7 +3247,6 @@
             const badge = document.createElement("div");
             badge.className = "cal-auction-badge";
             badge.innerHTML = "🔔";
-
             // 툴팁: 경매 예정 목록
             const tip = document.createElement("div");
             tip.className = "cal-auction-tip";
@@ -3256,7 +3255,7 @@
               upcomingList
                 .map(
                   (u) =>
-                    `<div class="cal-auction-tip-row"><span>${u.term}</span> ${u.type}</div>`,
+                    `<div class="cal-auction-tip-row"><span>${u.term}</span> ${u.type} <span>${u.amount}</span></div>`,
                 )
                 .join("");
             badge.appendChild(tip);
@@ -3282,10 +3281,10 @@
               const row = document.createElement("div");
               row.className = "cal-bar-row";
               row.innerHTML = `
-          <div class="cal-bar-dot" style="background:${TYPE_COLOR[type]}"></div>
-          <span class="cal-bar-label">${type}</span>
-          <span class="cal-bar-val">${fmtBillion(dayData[type])}</span>
-        `;
+            <div class="cal-bar-dot" style="background:${TYPE_COLOR[type]}"></div>
+            <span class="cal-bar-label">${type}</span>
+            <span class="cal-bar-val">${fmtBillion(dayData[type])}</span>
+          `;
               bars.appendChild(row);
             });
 
@@ -3294,10 +3293,10 @@
               const bbRow = document.createElement("div");
               bbRow.className = "cal-bb-row";
               bbRow.innerHTML = `
-          <div class="cal-bb-dot"></div>
-          <span class="cal-bb-label">Buy</span>
-          <span class="cal-bb-val">-${fmtBB(bbAmt)}</span>
-        `;
+            <div class="cal-bb-dot"></div>
+            <span class="cal-bb-label">Buy</span>
+            <span class="cal-bb-val">-${fmtBB(bbAmt)}</span>
+          `;
               bars.appendChild(bbRow);
             }
 
@@ -3305,9 +3304,9 @@
             const totalRow = document.createElement("div");
             totalRow.className = "cal-total-row";
             totalRow.innerHTML = `
-        <span class="cal-total-label">발행</span>
-        <span class="cal-total-val">${fmtBillion(dayData.total)}</span>
-      `;
+          <span class="cal-total-label">발행</span>
+          <span class="cal-total-val">${fmtBillion(dayData.total)}</span>
+        `;
             bars.appendChild(totalRow);
 
             // 순유입 (바이백 있을 때만)
@@ -3317,9 +3316,9 @@
               netRow.className = "cal-net-row";
               const netColor = net >= 0 ? "var(--red)" : "var(--green)";
               netRow.innerHTML = `
-          <span class="cal-net-label">순유입</span>
-          <span class="cal-net-val" style="color:${netColor}">${net >= 0 ? "+" : ""}${fmtBB(net)}</span>
-        `;
+            <span class="cal-net-label">순유입</span>
+            <span class="cal-net-val" style="color:${netColor}">${net >= 0 ? "+" : ""}${fmtBB(net)}</span>
+          `;
               bars.appendChild(netRow);
             }
 
@@ -3342,10 +3341,10 @@
               const bbRow = document.createElement("div");
               bbRow.className = "cal-bb-row";
               bbRow.innerHTML = `
-          <div class="cal-bb-dot"></div>
-          <span class="cal-bb-label">Buy</span>
-          <span class="cal-bb-val">-${fmtBB(bbAmt)}</span>
-        `;
+            <div class="cal-bb-dot"></div>
+            <span class="cal-bb-label">Buy</span>
+            <span class="cal-bb-val">-${fmtBB(bbAmt)}</span>
+          `;
               bars.appendChild(bbRow);
               cell.appendChild(bars);
               cell.addEventListener("click", () =>
@@ -3391,12 +3390,12 @@
           const typeRow = document.createElement("div");
           typeRow.className = "cal-popup-row";
           typeRow.innerHTML = `
-      <div class="cal-popup-type">
-        <div class="cal-popup-type-dot" style="background:${color}"></div>
-        ${type}
-      </div>
-      <div class="cal-popup-amount">${fmtB3(dayData[type])}</div>
-    `;
+        <div class="cal-popup-type">
+          <div class="cal-popup-type-dot" style="background:${color}"></div>
+          ${type}
+        </div>
+        <div class="cal-popup-amount">${fmtB3(dayData[type])}</div>
+      `;
           rowsEl.appendChild(typeRow);
 
           // ── 만기별 개별 행
@@ -3404,12 +3403,12 @@
             const termRow = document.createElement("div");
             termRow.className = "cal-popup-term-row";
             termRow.innerHTML = `
-        <div class="cal-popup-term-label">
-          <div class="cal-popup-term-bar" style="background:${color}"></div>
-          ${item.term}
-        </div>
-        <div class="cal-popup-term-amt">${fmtB3(item.total_accepted)}</div>
-      `;
+          <div class="cal-popup-term-label">
+            <div class="cal-popup-term-bar" style="background:${color}"></div>
+            ${item.term}
+          </div>
+          <div class="cal-popup-term-amt">${fmtB3(item.total_accepted)}</div>
+        `;
             rowsEl.appendChild(termRow);
           });
         });
@@ -3423,16 +3422,16 @@
         if (bbAmt > 0) {
           const net = dayData.total - bbAmt;
           bbSection.innerHTML = `
-      <div style="border-top:1px solid var(--border);margin-top:12px;padding-top:12px;">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-          <span style="font-size:12px;color:#fb7185;font-weight:600;">🔄 Buyback 지급 (유출)</span>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:#fb7185;">-${fmtBB(bbAmt)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;">
-          <span style="font-size:12px;color:var(--muted);font-weight:700;">순 유동성 변화</span>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:800;color:${net >= 0 ? "var(--red)" : "var(--green)"};">${net >= 0 ? "+" : ""}${fmtB3(net)}</span>
-        </div>
-      </div>`;
+        <div style="border-top:1px solid var(--border);margin-top:12px;padding-top:12px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-size:12px;color:#fb7185;font-weight:600;">🔄 Buyback 지급 (유출)</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:#fb7185;">-${fmtBB(bbAmt)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="font-size:12px;color:var(--muted);font-weight:700;">순 유동성 변화</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:800;color:${net >= 0 ? "var(--red)" : "var(--green)"};">${net >= 0 ? "+" : ""}${fmtB3(net)}</span>
+          </div>
+        </div>`;
           bbSection.style.display = "block";
         } else {
           bbSection.style.display = "none";
@@ -4413,7 +4412,7 @@
           "https://api.fiscaldata.treasury.gov/services/api/fiscal_service" +
           "/v1/accounting/od/upcoming_auctions" +
           `?filter=auction_date:gte:${todayStr},auction_date:lte:${futureStr}` +
-          "&fields=auction_date,security_type,security_term" +
+          "&fields=auction_date,security_type,security_term,offering_amt" +
           "&sort=auction_date&page[size]=200";
 
         try {
@@ -4421,7 +4420,6 @@
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const json = await res.json();
           const rows = json.data || [];
-
           // 날짜별로 그룹핑
           UPCOMING_DATA = {};
           rows.forEach((r) => {
@@ -4431,6 +4429,8 @@
             UPCOMING_DATA[d].push({
               term: r.security_term || "—",
               type: r.security_type || "",
+              amount:
+                fmtB3(r.offering_amt) === "NaNB" ? "—" : fmtB3(r.offering_amt),
             });
           });
 
